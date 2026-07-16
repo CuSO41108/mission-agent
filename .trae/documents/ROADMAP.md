@@ -13,10 +13,10 @@
 | Phase 3 | IPC 数据联通（读链路：folder/integration/workflow 从 SQLite 到 UI） | ✅ 完成 |
 | Phase 4 | 设置页 + config.yaml + DeepSeek API key 配置 | ✅ 完成 |
 | Phase 5 | 心跳调度 + Agent worker（调 DeepSeek） + 写操作 IPC | ✅ 完成 |
-| Phase 6 | 邮件接口（IMAP）"邮件→任务舱"闭环 | ⏳ |
-| Phase 7 | 飞书接口接入 | ⏳ |
-| Phase 8 | 文件引用 + 归档机制 + 写操作补全 | ⏳ |
-| Phase 9 | 打包与 npm 全局命令发布 | ⏳ |
+| Phase 6 | 邮件接口（IMAP）"邮件→任务舱"闭环 | 🅿️ 待办 |
+| Phase 7 | 飞书接口接入 | 🅿️ 待办 |
+| Phase 8 | 文件引用 + 归档机制 + 写操作补全 | 🅿️ 待办 |
+| Phase 9 | 打包与 npm 全局命令发布 | 🅿️ 待办 |
 
 ---
 
