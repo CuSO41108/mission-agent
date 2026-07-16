@@ -13,28 +13,73 @@ import type {
   TaskFolder,
   IntegrationAdapter,
   WorkflowRule,
+  Material,
+  FolderStatus,
 } from "../renderer/types";
+import type { AppConfig } from "../core/config";
 
 const api = {
   // ============ 应用信息 ============
   getVersion: () => ipcRenderer.invoke("app:version") as Promise<string>,
   getPlatform: () => ipcRenderer.invoke("app:platform") as Promise<string>,
 
-  // ============ 设置 ============
+  // ============ 设置（旧 API，保留兼容） ============
   getSetting: (key: string) => ipcRenderer.invoke("settings:get", key) as Promise<unknown>,
   setSetting: (key: string, value: unknown) =>
     ipcRenderer.invoke("settings:set", key, value) as Promise<boolean>,
 
-  // ============ 数据读取 ============
-  // Phase 3：只接读操作，写操作留到后续 Phase
+  // ============ 配置（Phase 4） ============
+  getConfig: () => ipcRenderer.invoke("config:get") as Promise<AppConfig>,
+  setConfig: (partial: Partial<AppConfig>) =>
+    ipcRenderer.invoke("config:set", partial) as Promise<AppConfig>,
+  testDeepSeek: () =>
+    ipcRenderer.invoke("deepseek:test") as Promise<
+      | { ok: true; content: string; model: string }
+      | { ok: false; error: string }
+    >,
+
+  // ============ 数据读取（Phase 3） ============
   getFolders: () => ipcRenderer.invoke("folder:list") as Promise<TaskFolder[]>,
   getFolder: (id: string) => ipcRenderer.invoke("folder:get", id) as Promise<TaskFolder | null>,
   getIntegrations: () => ipcRenderer.invoke("integration:list") as Promise<IntegrationAdapter[]>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
 
+  // ============ 写操作（Phase 5） ============
+  // folder 状态变更
+  setFolderStatus: (folderId: string, status: FolderStatus) =>
+    ipcRenderer.invoke("folder:updateStatus", folderId, status) as Promise<TaskFolder | null>,
+  // todo 切换完成状态
+  toggleTodo: (folderId: string, todoId: string, done: boolean) =>
+    ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<boolean>,
+  // 添加材料
+  addMaterial: (
+    folderId: string,
+    material: Omit<Material, "id" | "folderId" | "addedAt">,
+  ) => ipcRenderer.invoke("material:add", folderId, material) as Promise<Material>,
+  // Agent 开关
+  toggleAgent: (folderId: string, enabled: boolean) =>
+    ipcRenderer.invoke("agent:toggle", folderId, enabled) as Promise<boolean>,
+  // Workflow 开关
+  toggleWorkflow: (workflowId: string, enabled: boolean) =>
+    ipcRenderer.invoke("workflow:toggle", workflowId, enabled) as Promise<boolean>,
+
+  // ============ 心跳（Phase 5） ============
+  // 手动触发一次心跳巡检所有 enabled 舱体
+  triggerHeartbeat: () =>
+    ipcRenderer.invoke("agent:triggerHeartbeat") as Promise<
+      | { ok: true; scanned: number; executed: number; succeeded: number; failed: number }
+      | { ok: false; error: string }
+    >,
+  // 手动触发单个舱体的 Agent
+  runAgentOnce: (folderId: string) =>
+    ipcRenderer.invoke("agent:runOnce", folderId) as Promise<
+      | { ok: true; summary: string }
+      | { ok: false; error: string }
+    >,
+
   // ============ Agent 事件订阅（主进程主动推送） ============
   /**
-   * 订阅 Agent 推送的事件（心跳完成、邮件入舱、催办等）
+   * 订阅 Agent 推送的事件（心跳开始/完成、错误等）
    * 返回 unsubscribe 函数，useEffect 里直接 return 即可自动清理
    */
   onAgentEvent: (callback: (payload: unknown) => void) => {

@@ -3,13 +3,38 @@
  * 负责：窗口/托盘/全局快捷键/生命周期/IPC 注册
  * 业务逻辑全部下沉到 src/core/
  */
-import { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, shell, ipcMain } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { TaskFolder } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
 import { seedDatabase } from "../core/db/seed";
+// 关键：用 ES import 而非函数内 require
+// electron-vite 只会把 import 依赖打包进 out/main/index.js
+// 动态 require 在 ESM 项目里不会被 bundler 处理，运行时找不到模块
+import {
+  getAllFoldersWithDetails,
+  getFolderDetail,
+  getAllIntegrations,
+  getAllWorkflows,
+  setFolderStatus,
+  toggleTodo,
+  addMaterial,
+  toggleAgent,
+  toggleWorkflow,
+} from "../core/services";
+import { runFolderAgent } from "../core/workflow";
+import {
+  initConfigFile,
+  loadConfig,
+  saveConfig,
+  mergeConfig,
+  testDeepSeek,
+  type AppConfig,
+} from "../core/config";
+import { startScheduler, stopScheduler, runTickOnce } from "./scheduler";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +46,8 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let registeredShortcut: string | null = null;
 let isQuitting = false;
+// 应用配置（启动时加载，IPC 更新时同步到内存 + 磁盘）
+let appConfig: AppConfig | null = null;
 
 // ============ 应用标识 ============
 app.setName(PRODUCT_NAME);
@@ -97,12 +124,9 @@ function createTray(): void {
       {
         label: "立即执行心跳",
         click: () => {
-          // TODO: Phase 2 接入 core/runtime/heartbeat.ts
-          mainWindow?.webContents.send("agent:event", {
-            type: "info",
-            title: "心跳触发",
-            body: "手动执行了一次心跳扫描（Phase 2 接入后生效）",
-          });
+          if (mainWindow) {
+            void runTickOnce(getConfig(), mainWindow);
+          }
         },
       },
       { type: "separator" },
@@ -161,18 +185,59 @@ function registerShortcut(accelerator: string): boolean {
   return ok;
 }
 
+// ============ 配置初始化 ============
+// 由 main 进程负责：读取 userData/config.yaml，不存在则创建默认
+function initAppConfig(): void {
+  const userDataDir = app.getPath("userData");
+  const configPath = path.join(userDataDir, "config.yaml");
+  appConfig = initConfigFile(configPath);
+  console.log(`[config] 已加载 ${configPath}`);
+}
+
+// 获取当前配置（IPC handler 用）
+function getConfig(): AppConfig {
+  if (!appConfig) {
+    // 理论上不会走到这里，whenReady 时已 init
+    const userDataDir = app.getPath("userData");
+    const configPath = path.join(userDataDir, "config.yaml");
+    appConfig = loadConfig(configPath);
+  }
+  return appConfig;
+}
+
+// 更新配置（partial merge → 内存 + 磁盘）
+function updateConfig(partial: Partial<AppConfig>): AppConfig {
+  const userDataDir = app.getPath("userData");
+  const configPath = path.join(userDataDir, "config.yaml");
+  const current = getConfig();
+  const merged = mergeConfig(current, partial);
+  saveConfig(configPath, merged);
+  appConfig = merged;
+
+  // 同步运行时状态：快捷键变了就重注册
+  if (
+    partial.system?.globalShortcut &&
+    partial.system.globalShortcut !== registeredShortcut
+  ) {
+    registerShortcut(partial.system.globalShortcut);
+  }
+  // 同步运行时状态：心跳间隔/开关变了就重启 scheduler
+  if (partial.agent && mainWindow) {
+    startScheduler(
+      merged.agent.heartbeatIntervalMin,
+      merged.agent.enabled,
+      merged,
+      mainWindow,
+    );
+  }
+
+  return merged;
+}
+
 // ============ IPC 注册 ============
 // IPC handler 路由：渲染进程 invoke 的 channel → 调 core/Service
-// Phase 3：只接读操作，写操作留到后续 Phase
+// Phase 3：读操作；Phase 4：加 config 读写 + DeepSeek 测试
 function registerIpc(): void {
-  const { ipcMain } = require("electron");
-  const {
-    getAllFoldersWithDetails,
-    getFolderDetail,
-    getAllIntegrations,
-    getAllWorkflows,
-  } = require("../core/services");
-
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:platform", () => process.platform);
 
@@ -186,11 +251,100 @@ function registerIpc(): void {
   // 工作流
   ipcMain.handle("workflow:list", () => getAllWorkflows());
 
-  // 设置（Phase 4 接 config.yaml）
+  // ============ 配置（Phase 4） ============
+  // 获取完整配置（API key 等敏感字段也返回，渲染层需要回填表单）
+  ipcMain.handle("config:get", () => getConfig());
+  // 更新配置（partial merge），返回合并后的完整 config
+  ipcMain.handle("config:set", (_e: unknown, partial: Partial<AppConfig>) =>
+    updateConfig(partial),
+  );
+  // 测试 DeepSeek 连接：发一个最小请求验证 key
+  ipcMain.handle("deepseek:test", async () => {
+    try {
+      const result = await testDeepSeek(getConfig().deepseek);
+      return { ok: true, content: result.content, model: result.model };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  // ============ 写操作（Phase 5） ============
+  // folder 状态变更（归档/暂停/恢复/完成）
+  ipcMain.handle(
+    "folder:updateStatus",
+    (_e, folderId: string, status: string) =>
+      setFolderStatus(folderId, status as TaskFolder["status"]),
+  );
+  // todo 切换完成状态
+  ipcMain.handle(
+    "todo:toggle",
+    (_e, folderId: string, todoId: string, done: boolean) => {
+      toggleTodo(folderId, todoId, done);
+      return true;
+    },
+  );
+  // 添加材料
+  ipcMain.handle("material:add", (_e, folderId: string, material: unknown) =>
+    addMaterial(folderId, material as Parameters<typeof addMaterial>[1]),
+  );
+  // Agent 开关
+  ipcMain.handle(
+    "agent:toggle",
+    (_e, folderId: string, enabled: boolean) => {
+      toggleAgent(folderId, enabled);
+      return true;
+    },
+  );
+  // Workflow 开关
+  ipcMain.handle(
+    "workflow:toggle",
+    (_e, workflowId: string, enabled: boolean) => {
+      toggleWorkflow(workflowId, enabled);
+      return true;
+    },
+  );
+
+  // ============ 心跳（Phase 5） ============
+  // 手动触发一次心跳
+  ipcMain.handle("agent:triggerHeartbeat", async () => {
+    try {
+      const result = await runTickOnce(getConfig(), mainWindow!);
+      return {
+        ok: true,
+        scanned: result.scanned,
+        executed: result.executed,
+        succeeded: result.succeeded,
+        failed: result.failed,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+  // 手动触发单个舱体的 Agent
+  ipcMain.handle("agent:runOnce", async (_e, folderId: string) => {
+    try {
+      const result = await runFolderAgent(folderId, getConfig().deepseek);
+      return { ok: result.ok, summary: result.summary, error: result.error };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  // 兼容旧 settings:get（让现有 store 不破，后续逐步迁移到 config:get）
   ipcMain.handle("settings:get", (_event: unknown, key: string) => {
-    if (key === "globalShortcut") return DEFAULT_SHORTCUT;
-    if (key === "openAtLogin") return false;
-    if (key === "heartbeatInterval") return 30;
+    const cfg = getConfig();
+    if (key === "globalShortcut") return cfg.system.globalShortcut;
+    if (key === "openAtLogin") return cfg.system.autoLaunch;
+    if (key === "heartbeatInterval") return cfg.agent.heartbeatIntervalMin;
     return null;
   });
   ipcMain.handle("settings:set", (_event: unknown, _key: string, _value: unknown) => {
@@ -227,10 +381,22 @@ function initAppDatabase(): void {
 // ============ 应用生命周期 ============
 app.whenReady().then(() => {
   initAppDatabase();
+  initAppConfig();
   createWindow();
   createTray();
   registerIpc();
-  registerShortcut(DEFAULT_SHORTCUT);
+  // 注册配置中的快捷键（用户可能在设置页改过）
+  registerShortcut(getConfig().system.globalShortcut || DEFAULT_SHORTCUT);
+  // 启动心跳调度器（按配置的间隔与开关）
+  if (mainWindow) {
+    const cfg = getConfig();
+    startScheduler(
+      cfg.agent.heartbeatIntervalMin,
+      cfg.agent.enabled,
+      cfg,
+      mainWindow,
+    );
+  }
 });
 
 // 单实例：第二个实例尝试启动时唤起窗口
@@ -255,11 +421,8 @@ app.on("window-all-closed", () => {
 // 退出前清理
 app.on("before-quit", () => {
   globalShortcut.unregisterAll();
+  stopScheduler();
   closeDatabase();
-  // TODO: Phase 3+ 接入 core/runtime/shutdown.ts，关闭：
-  //   - heartbeat scheduler
-  //   - Agent workers
-  //   - 邮件/飞书 long-poll
 });
 
 // 防止后台静默崩溃

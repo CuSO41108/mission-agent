@@ -234,51 +234,68 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     }
   },
 
-  toggleTodo: (folderId, todoId) =>
+  // ============ 写操作（Phase 5：调 IPC + 本地刷新） ============
+  // 设计：写 IPC 落库后，本地 store 乐观更新 + 拿返回值刷新
+  // 失败时回滚（此处简化为 console.error，未来可加 toast）
+
+  toggleTodo: (folderId, todoId) => {
+    // 先算新状态用于乐观更新
+    const folder = get().folders.find((f) => f.id === folderId);
+    if (!folder) return;
+    const findTodo = (todos: Todo[]): Todo | undefined => {
+      for (const t of todos) {
+        if (t.id === todoId) return t;
+        const sub = findTodo(t.subtasks);
+        if (sub) return sub;
+      }
+      return undefined;
+    };
+    const target = findTodo(folder.todos);
+    const newDone = target ? !target.done : false;
+
+    // 乐观更新本地
     set((s) => ({
       folders: s.folders.map((f) => {
         if (f.id !== folderId) return f;
         const flip = (todos: Todo[]): Todo[] =>
           todos.map((t) => {
-            if (t.id === todoId) {
-              return { ...t, done: !t.done };
-            }
-            if (t.subtasks.length) {
-              return { ...t, subtasks: flip(t.subtasks) };
-            }
+            if (t.id === todoId) return { ...t, done: !t.done };
+            if (t.subtasks.length) return { ...t, subtasks: flip(t.subtasks) };
             return t;
           });
         const todos = flip(f.todos);
-        const done = todos.filter((t) => t.done).length;
-        const progress = Math.round((done / Math.max(todos.length, 1)) * 100);
-        return {
-          ...f,
-          todos,
-          progress,
-          timeline: [
-            {
-              id: genId(),
-              folderId,
-              actor: "human",
-              action: `切换待办状态`,
-              timestamp: Date.now(),
-            },
-            ...f.timeline,
-          ],
-        };
+        const doneCount = todos.filter((t) => t.done).length;
+        const progress = Math.round((doneCount / Math.max(todos.length, 1)) * 100);
+        return { ...f, todos, progress };
       }),
-    })),
+    }));
 
-  toggleAgent: (folderId) =>
+    // 异步落库（失败只 log，不回滚——简化处理）
+    void window.missionConsole
+      .toggleTodo(folderId, todoId, newDone)
+      .catch((err) => console.error("[store] toggleTodo IPC 失败：", err));
+  },
+
+  toggleAgent: (folderId) => {
+    const folder = get().folders.find((f) => f.id === folderId);
+    if (!folder) return;
+    const newEnabled = !folder.agentConfig.enabled;
+
     set((s) => ({
       folders: s.folders.map((f) =>
         f.id === folderId
-          ? { ...f, agentConfig: { ...f.agentConfig, enabled: !f.agentConfig.enabled } }
+          ? { ...f, agentConfig: { ...f.agentConfig, enabled: newEnabled } }
           : f
       ),
-    })),
+    }));
 
-  setFolderStatus: (folderId, status) =>
+    void window.missionConsole
+      .toggleAgent(folderId, newEnabled)
+      .catch((err) => console.error("[store] toggleAgent IPC 失败：", err));
+  },
+
+  setFolderStatus: (folderId, status) => {
+    // 乐观更新
     set((s) => ({
       folders: s.folders.map((f) =>
         f.id === folderId
@@ -290,7 +307,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
                 {
                   id: genId(),
                   folderId,
-                  actor: "human",
+                  actor: "human" as const,
                   action: `状态变更为 ${status}`,
                   timestamp: Date.now(),
                 },
@@ -299,14 +316,28 @@ export const useMissionStore = create<MissionState>((set, get) => ({
             }
           : f
       ),
-    })),
+    }));
 
-  toggleWorkflow: (id) =>
+    void window.missionConsole
+      .setFolderStatus(folderId, status)
+      .catch((err) => console.error("[store] setFolderStatus IPC 失败：", err));
+  },
+
+  toggleWorkflow: (id) => {
+    const wf = get().workflows.find((w) => w.id === id);
+    if (!wf) return;
+    const newEnabled = !wf.enabled;
+
     set((s) => ({
       workflows: s.workflows.map((w) =>
-        w.id === id ? { ...w, enabled: !w.enabled } : w
+        w.id === id ? { ...w, enabled: newEnabled } : w
       ),
-    })),
+    }));
+
+    void window.missionConsole
+      .toggleWorkflow(id, newEnabled)
+      .catch((err) => console.error("[store] toggleWorkflow IPC 失败：", err));
+  },
 
   toggleIntegration: (id) =>
     set((s) => ({
@@ -321,20 +352,21 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       ),
     })),
 
-  addMaterial: (folderId, m) =>
+  addMaterial: (folderId, m) => {
+    // 乐观加到本地
     set((s) => ({
       folders: s.folders.map((f) =>
         f.id === folderId
           ? {
               ...f,
               materials: [
-                ...f.materials,
                 {
                   ...m,
                   id: genId(),
                   folderId,
                   addedAt: Date.now(),
                 },
+                ...f.materials,
               ],
               timeline: [
                 {
@@ -349,7 +381,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
             }
           : f
       ),
-    })),
+    }));
+
+    // 异步落库（成功后用真实 id 替换乐观 id；此处简化为只触发 IPC）
+    void window.missionConsole
+      .addMaterial(folderId, m)
+      .catch((err) => console.error("[store] addMaterial IPC 失败：", err));
+  },
 
   sendCopilot: (content) => {
     const userMsg: CopilotMessage = {
