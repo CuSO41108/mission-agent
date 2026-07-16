@@ -95,10 +95,13 @@ export default function Sidebar() {
           <span className="text-ink-faint">SYNC</span>
           <span className="text-phosphor-400">4/8 CONN</span>
         </div>
-        <button className="w-full mt-1 flex items-center gap-2 px-2 py-1.5 text-[10px] text-ink-faint hover:text-ink-muted border border-white/5 hover:border-white/10 transition-colors">
+        <NavLink
+          to="/settings"
+          className="w-full mt-1 flex items-center gap-2 px-2 py-1.5 text-[10px] text-ink-faint hover:text-ink-muted border border-white/5 hover:border-white/10 transition-colors"
+        >
           <Settings className="w-3 h-3" strokeWidth={1.5} />
           <span className="uppercase tracking-wider">设置</span>
-        </button>
+        </NavLink>
       </div>
     </aside>
   );

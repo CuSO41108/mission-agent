@@ -113,6 +113,20 @@
     font-family: "Chakra Petch", sans-serif;
   }
 
+  /* 图标按钮（方框风格） */
+  .btn-icon {
+    @apply inline-flex items-center justify-center w-8 h-8 transition-colors;
+    @apply border border-phosphor-400/30 bg-phosphor-400/5 text-phosphor-100 hover:bg-phosphor-400/15;
+  }
+
+  /* 表单输入框 */
+  .input {
+    @apply w-full px-3 py-2 text-[12px] text-ink bg-obsidian-900/60 border border-white/10;
+    @apply focus:outline-none focus:border-phosphor-400/60 focus:bg-obsidian-900/90;
+    @apply placeholder:text-ink-faint/60;
+    font-family: "JetBrains Mono", monospace;
+  }
+
   /* 危险按钮 */
   .btn-coral {
     @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;

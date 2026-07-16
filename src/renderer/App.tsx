@@ -7,6 +7,7 @@ import FolderDetail from "@/pages/FolderDetail";
 import Integrations from "@/pages/Integrations";
 import Workflow from "@/pages/Workflow";
 import Agents from "@/pages/Agents";
+import Settings from "@/pages/Settings";
 import { useMissionStore } from "@/store/useMissionStore";
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/workflow" element={<Workflow />} />
           <Route path="/agents" element={<Agents />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </Router>
