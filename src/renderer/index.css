@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-obsidian: #0a0e14;
+    --bg-panel: #131922;
+    --border-phosphor: rgba(0, 229, 212, 0.18);
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-obsidian);
+    color: #e6edf3;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+
+  /* 全局背景：黑曜石底 + 极淡网格 + 噪点 */
+  #root {
+    background-color: var(--bg-obsidian);
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(0, 229, 212, 0.04), transparent 45%),
+      radial-gradient(circle at 80% 100%, rgba(157, 140, 255, 0.03), transparent 40%),
+      linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(0, 229, 212, 0.28);
+    color: #e6fffb;
+  }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 229, 212, 0.15);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 229, 212, 0.3);
+  }
+
+  /* 标题字体 */
+  h1, h2, h3, h4 {
+    font-family: "Chakra Petch", system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  /* 面板基础：半透明 + 磷光青边框 + 顶部高光条 */
+  .panel {
+    position: relative;
+    background-color: rgba(19, 25, 34, 0.7);
+    border: 1px solid var(--border-phosphor);
+    backdrop-filter: blur(8px);
+  }
+  .panel::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 8%;
+    right: 8%;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(0, 229, 212, 0.55),
+      transparent
+    );
+    opacity: 0.7;
+  }
+
+  /* 磷光青描边按钮 */
+  .btn-phosphor {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
+    @apply border border-phosphor-400/60 bg-phosphor-400/5 text-phosphor-100;
+    font-family: "Chakra Petch", sans-serif;
+  }
+  .btn-phosphor:hover {
+    @apply bg-phosphor-400/15 border-phosphor-400 text-phosphor-50;
+    box-shadow: 0 0 0 1px rgba(0, 229, 212, 0.3), 0 0 20px -6px rgba(0, 229, 212, 0.5);
+  }
+  .btn-phosphor:active {
+    transform: translateY(1px);
+  }
+
+  /* 线框次按钮 */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
+    @apply border border-ink-faint/40 text-ink-muted hover:text-ink hover:border-ink-muted;
+    font-family: "Chakra Petch", sans-serif;
+  }
+
+  /* 危险按钮 */
+  .btn-coral {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
+    @apply border border-coral/60 bg-coral/5 text-coral;
+    font-family: "Chakra Petch", sans-serif;
+  }
+
+  /* 数据徽标：等宽字距 */
+  .data-mono {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  /* 标签芯片 */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider border;
+    font-family: "Chakra Petch", sans-serif;
+  }
+
+  /* 角标装饰：四角直角线 */
+  .corners {
+    position: relative;
+  }
+  .corners::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(to right, rgba(0, 229, 212, 0.35), transparent 8px) top left / 8px 1px no-repeat,
+      linear-gradient(to bottom, rgba(0, 229, 212, 0.35), transparent 8px) top left / 1px 8px no-repeat,
+      linear-gradient(to left, rgba(0, 229, 212, 0.35), transparent 8px) top right / 8px 1px no-repeat,
+      linear-gradient(to bottom, rgba(0, 229, 212, 0.35), transparent 8px) top right / 1px 8px no-repeat,
+      linear-gradient(to right, rgba(0, 229, 212, 0.35), transparent 8px) bottom left / 8px 1px no-repeat,
+      linear-gradient(to top, rgba(0, 229, 212, 0.35), transparent 8px) bottom left / 1px 8px no-repeat,
+      linear-gradient(to left, rgba(0, 229, 212, 0.35), transparent 8px) bottom right / 8px 1px no-repeat,
+      linear-gradient(to top, rgba(0, 229, 212, 0.35), transparent 8px) bottom right / 1px 8px no-repeat;
+  }
+}
+
+@layer utilities {
+  .text-glow-phosphor {
+    text-shadow: 0 0 12px rgba(0, 229, 212, 0.45);
+  }
+  .text-glow-amber {
+    text-shadow: 0 0 12px rgba(255, 181, 71, 0.4);
+  }
+  .text-glow-coral {
+    text-shadow: 0 0 12px rgba(255, 107, 107, 0.4);
+  }
+  .bg-panel-solid {
+    background-color: #131922;
+  }
+  .clip-corner {
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  }
+}
