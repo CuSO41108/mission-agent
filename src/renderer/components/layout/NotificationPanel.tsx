@@ -15,6 +15,7 @@ import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { AgentNotification, NotificationType } from "@/types";
+import { usePreferences } from "@/i18n";
 
 const TYPE_ICON: Record<NotificationType, typeof Info> = {
   info: Info,
@@ -102,6 +103,7 @@ function NotificationItem({ n }: { n: AgentNotification }) {
 }
 
 export default function NotificationPanel() {
+  const { text: t } = usePreferences();
   const open = useMissionStore((s) => s.notificationPanelOpen);
   const setOpen = useMissionStore((s) => s.setNotificationPanelOpen);
   const notifications = useMissionStore((s) => s.notifications);
@@ -133,7 +135,7 @@ export default function NotificationPanel() {
               <div className="flex items-center gap-2">
                 <Bell className="w-3 h-3 text-phosphor-400" strokeWidth={1.5} />
                 <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                  通知 · NOTIFICATIONS
+                  {t("通知", "Notifications")} · NOTIFICATIONS
                 </h3>
                 {unread > 0 && (
                   <span className="text-[9px] data-mono text-phosphor-400 bg-phosphor-400/10 border border-phosphor-400/30 px-1.5 py-0.5">
@@ -152,7 +154,7 @@ export default function NotificationPanel() {
                 )}
               >
                 <Check className="w-2.5 h-2.5" strokeWidth={1.5} />
-                全部已读
+                {t("全部已读", "Mark all read")}
               </button>
             </div>
 
@@ -160,7 +162,7 @@ export default function NotificationPanel() {
             <div className="flex-1 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="px-3 py-8 text-center text-[12px] text-ink-faint">
-                  暂无通知
+                  {t("暂无通知", "No notifications")}
                 </div>
               ) : (
                 notifications.map((n) => <NotificationItem key={n.id} n={n} />)
@@ -169,7 +171,7 @@ export default function NotificationPanel() {
 
             {/* 底部 */}
             <div className="px-3 py-2 border-t border-phosphor-400/15 text-[9px] data-mono text-ink-faint text-center">
-              由 Agent 心跳 · 接口同步 · 系统事件 推送
+              {t("由 Agent 心跳 · 接口同步 · 系统事件 推送", "Delivered by Agent heartbeat, integration sync, and system events")}
             </div>
           </motion.div>
         </>

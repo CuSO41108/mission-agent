@@ -3,6 +3,7 @@ import { Search, Bell, PanelRight, Cpu, Activity } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import { clockTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 interface TopbarProps {
   title: string;
@@ -11,6 +12,7 @@ interface TopbarProps {
 }
 
 export default function Topbar({ title, breadcrumb = [], onToggleCopilot }: TopbarProps) {
+  const { text: t } = usePreferences();
   const [now, setNow] = useState(Date.now());
   const setCopilotOpen = useMissionStore((s) => s.setCopilotOpen);
   const copilotOpen = useMissionStore((s) => s.copilotOpen);
@@ -63,7 +65,7 @@ export default function Topbar({ title, breadcrumb = [], onToggleCopilot }: Topb
         <div className="relative group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-faint group-hover:text-phosphor-400 transition-colors" />
           <div className="w-full pl-9 pr-16 py-2 bg-obsidian-850/60 border border-phosphor-400/15 text-[12px] text-ink-faint group-hover:border-phosphor-400/30 group-hover:bg-obsidian-850/80 transition-colors data-mono">
-            搜索舱体 / 待办 / 材料…
+            {t("搜索舱体 / 待办 / 材料…", "Search folders / todos / materials…")}
           </div>
           <kbd className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[9px] data-mono text-phosphor-400/70 border border-phosphor-400/30 bg-phosphor-400/5 pointer-events-none">
             ⌘K
@@ -101,7 +103,7 @@ export default function Topbar({ title, breadcrumb = [], onToggleCopilot }: Topb
               ? "border-phosphor-400/50 text-phosphor-400 bg-phosphor-400/10"
               : "border-phosphor-400/15 text-ink-muted hover:text-phosphor-400 hover:border-phosphor-400/40"
           )}
-          title="通知"
+          title={t("通知", "Notifications")}
         >
           <Bell className="w-3.5 h-3.5" strokeWidth={1.5} />
           {badgeCount > 0 && (
@@ -119,7 +121,7 @@ export default function Topbar({ title, breadcrumb = [], onToggleCopilot }: Topb
               ? "border-phosphor-400/40 text-phosphor-400 bg-phosphor-400/10"
               : "border-phosphor-400/15 text-ink-muted hover:text-phosphor-400 hover:border-phosphor-400/40"
           )}
-          title="切换 AI 副驾"
+          title={t("切换 AI 副驾", "Toggle AI copilot")}
         >
           <PanelRight className="w-3.5 h-3.5" strokeWidth={1.5} />
         </button>

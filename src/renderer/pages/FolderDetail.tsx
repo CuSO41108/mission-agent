@@ -16,10 +16,13 @@ import TodoList from "@/components/folder-detail/TodoList";
 import MaterialList from "@/components/folder-detail/MaterialList";
 import TimelineView from "@/components/folder-detail/TimelineView";
 import AgentControlPanel from "@/components/folder-detail/AgentControlPanel";
-import { countdown, relativeTime, shortTime, STATUS_LABEL } from "@/lib/format";
+import { countdown, relativeTime, shortTime, statusLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
+import { accentTint, themeAccent } from "@/lib/theme";
 
 export default function FolderDetail() {
+  const { locale, text: t } = usePreferences();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const folder = useMissionStore((s) => s.folders.find((f) => f.id === id));
@@ -29,15 +32,16 @@ export default function FolderDetail() {
   if (!folder) {
     return (
       <div className="p-10 text-center">
-        <p className="text-ink-muted mb-3">任务舱未找到</p>
+        <p className="text-ink-muted mb-3">{t("任务舱未找到", "Mission folder not found")}</p>
         <Link to="/folders" className="btn-phosphor inline-flex">
-          返回舱库
+          {t("返回舱库", "Back to folders")}
         </Link>
       </div>
     );
   }
 
-  const cd = countdown(folder.deadline);
+  const cd = countdown(folder.deadline, locale);
+  const coverColor = themeAccent(folder.coverColor);
 
   return (
     <div className="h-full flex flex-col">
@@ -65,20 +69,20 @@ export default function FolderDetail() {
               <div
                 className="relative w-14 h-14 shrink-0 flex items-center justify-center border-2 clip-corner"
                 style={{
-                  borderColor: folder.coverColor,
-                  background: `${folder.coverColor}10`,
-                  boxShadow: `0 0 24px -8px ${folder.coverColor}`,
+                  borderColor: coverColor,
+                  background: accentTint(folder.coverColor, 0.06),
+                  boxShadow: `0 0 24px -8px ${coverColor}`,
                 }}
               >
                 <span
                   className="font-display font-bold text-xl data-mono"
-                  style={{ color: folder.coverColor, textShadow: `0 0 12px ${folder.coverColor}66` }}
+                  style={{ color: coverColor, textShadow: `0 0 12px color-mix(in srgb, ${coverColor} 40%, transparent)` }}
                 >
                   {folder.progress}
                 </span>
                 <span
                   className="absolute -top-1 -right-1 w-2 h-2 rotate-45"
-                  style={{ background: folder.coverColor, boxShadow: `0 0 8px ${folder.coverColor}` }}
+                  style={{ background: coverColor, boxShadow: `0 0 8px ${coverColor}` }}
                 />
               </div>
 
@@ -87,7 +91,7 @@ export default function FolderDetail() {
                   <PriorityBadge priority={folder.priority} />
                   <span className="chip border-ink-faint/30 text-ink-faint">
                     <StatusDot status={folder.status} />
-                    {STATUS_LABEL[folder.status]}
+                    {statusLabel(folder.status, locale)}
                   </span>
                   <span className="chip border-phosphor-400/30 text-phosphor-400 bg-phosphor-400/5">
                     <Tag className="w-2.5 h-2.5" strokeWidth={1.5} />
@@ -105,7 +109,7 @@ export default function FolderDetail() {
                 <div className="flex items-center gap-4 mt-1.5 text-[10px] data-mono text-ink-faint">
                   <span className="flex items-center gap-1">
                     <Calendar className="w-2.5 h-2.5" strokeWidth={1.5} />
-                    创建于 {shortTime(folder.createdAt)}
+                    {t("创建于", "Created")} {shortTime(folder.createdAt)}
                   </span>
                   {folder.deadline && (
                     <span
@@ -114,7 +118,7 @@ export default function FolderDetail() {
                         cd.overdue ? "text-coral" : cd.urgent ? "text-amber-400" : "text-phosphor-400"
                       )}
                     >
-                      截止 {relativeTime(folder.deadline)}
+                      {t("截止", "Due")} {relativeTime(folder.deadline, locale)}
                     </span>
                   )}
                 </div>
@@ -129,11 +133,11 @@ export default function FolderDetail() {
               >
                 {folder.status === "paused" ? (
                   <>
-                    <Play className="w-3 h-3" strokeWidth={1.5} /> 继续
+                    <Play className="w-3 h-3" strokeWidth={1.5} /> {t("继续", "Resume")}
                   </>
                 ) : (
                   <>
-                    <Pause className="w-3 h-3" strokeWidth={1.5} /> 暂停
+                    <Pause className="w-3 h-3" strokeWidth={1.5} /> {t("暂停", "Pause")}
                   </>
                 )}
               </button>
@@ -141,16 +145,16 @@ export default function FolderDetail() {
                 onClick={() => setFolderStatus(folder.id, "done")}
                 className="btn-ghost"
               >
-                <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} /> 完成
+                <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} /> {t("完成", "Complete")}
               </button>
               <button
                 onClick={() => setFolderStatus(folder.id, "archived")}
                 className="btn-coral"
               >
-                <Archive className="w-3 h-3" strokeWidth={1.5} /> 归档
+                <Archive className="w-3 h-3" strokeWidth={1.5} /> {t("归档", "Archive")}
               </button>
               <button className="btn-phosphor">
-                <Plus className="w-3 h-3" strokeWidth={2} /> 添加
+                <Plus className="w-3 h-3" strokeWidth={2} /> {t("添加", "Add")}
               </button>
             </div>
           </div>
@@ -178,19 +182,19 @@ export default function FolderDetail() {
                 <div className="flex items-center gap-2">
                   <span className="w-1 h-1 bg-amber-400 animate-pulse-dot" />
                   <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                    笔记
+                    {t("笔记", "Notes")}
                   </h3>
                 </div>
                 <span className="text-[9px] data-mono text-ink-faint">DRAFT</span>
               </div>
               <div className="flex-1 p-3 overflow-y-auto">
                 <textarea
-                  placeholder="在此记录想法、引用材料或链接待办…"
+                  placeholder={t("在此记录想法、引用材料或链接待办…", "Capture thoughts, reference material, or linked todos…")}
                   className="w-full h-full bg-transparent text-[12px] text-ink placeholder:text-ink-faint focus:outline-none resize-none leading-relaxed"
                   defaultValue={
                     folder.id === "f-001"
                       ? "13 笔跨境差异集中于 8 月汇率波动窗口，已请求财务复核。\n\n关键引用：\n- Q3-营收明细表.xlsx\n- 待办「核对跨境结算差异」"
-                      : "在此记录关键想法与决策…"
+                      : t("在此记录关键想法与决策…", "Record key ideas and decisions here…")
                   }
                 />
               </div>

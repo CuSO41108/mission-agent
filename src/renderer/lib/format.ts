@@ -1,6 +1,8 @@
+import type { Locale } from "@/i18n";
+
 // 时间与数据格式化工具
 
-export function relativeTime(ts: number | null): string {
+export function relativeTime(ts: number | null, locale: Locale = "zh-CN"): string {
   if (!ts) return "—";
   const diff = ts - Date.now();
   const abs = Math.abs(diff);
@@ -9,16 +11,18 @@ export function relativeTime(ts: number | null): string {
   const DAY = 24 * HOUR;
 
   const fmt = (val: number, unit: string) =>
-    diff >= 0 ? `剩余 ${val}${unit}` : `${val}${unit}前`;
+    locale === "en-US"
+      ? diff >= 0 ? `in ${val}${unit}` : `${val}${unit} ago`
+      : diff >= 0 ? `剩余 ${val}${unit}` : `${val}${unit}前`;
 
-  if (abs < MIN) return diff >= 0 ? "即将" : "刚刚";
+  if (abs < MIN) return locale === "en-US" ? (diff >= 0 ? "soon" : "just now") : (diff >= 0 ? "即将" : "刚刚");
   if (abs < HOUR) return fmt(Math.floor(abs / MIN), "m");
   if (abs < DAY) return fmt(Math.floor(abs / HOUR), "h");
   return fmt(Math.floor(abs / DAY), "d");
 }
 
-export function countdown(ts: number | null): { text: string; urgent: boolean; overdue: boolean } {
-  if (!ts) return { text: "无截止", urgent: false, overdue: false };
+export function countdown(ts: number | null, locale: Locale = "zh-CN"): { text: string; urgent: boolean; overdue: boolean } {
+  if (!ts) return { text: locale === "en-US" ? "No deadline" : "无截止", urgent: false, overdue: false };
   const diff = ts - Date.now();
   const MIN = 60 * 1000;
   const HOUR = 60 * MIN;
@@ -26,9 +30,10 @@ export function countdown(ts: number | null): { text: string; urgent: boolean; o
 
   if (diff < 0) {
     const abs = Math.abs(diff);
-    if (abs < HOUR) return { text: `逾期 ${Math.floor(abs / MIN)}m`, urgent: true, overdue: true };
-    if (abs < DAY) return { text: `逾期 ${Math.floor(abs / HOUR)}h`, urgent: true, overdue: true };
-    return { text: `逾期 ${Math.floor(abs / DAY)}d`, urgent: true, overdue: true };
+    const overdue = (value: number, unit: string) => locale === "en-US" ? `Overdue ${value}${unit}` : `逾期 ${value}${unit}`;
+    if (abs < HOUR) return { text: overdue(Math.floor(abs / MIN), "m"), urgent: true, overdue: true };
+    if (abs < DAY) return { text: overdue(Math.floor(abs / HOUR), "h"), urgent: true, overdue: true };
+    return { text: overdue(Math.floor(abs / DAY), "d"), urgent: true, overdue: true };
   }
   if (diff < HOUR) return { text: `T-${Math.floor(diff / MIN)}m`, urgent: true, overdue: false };
   if (diff < DAY) return { text: `T-${Math.floor(diff / HOUR)}h`, urgent: false, overdue: false };
@@ -60,10 +65,10 @@ export const PRIORITY_LABEL: Record<string, string> = {
 };
 
 export const PRIORITY_COLOR: Record<string, string> = {
-  critical: "#FF6B6B",
-  high: "#FFB547",
-  medium: "#00E5D4",
-  low: "#7FD1B9",
+  critical: "rgb(var(--coral))",
+  high: "rgb(var(--amber-500))",
+  medium: "rgb(var(--phosphor-400))",
+  low: "rgb(var(--jade))",
 };
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -72,3 +77,13 @@ export const STATUS_LABEL: Record<string, string> = {
   done: "已完成",
   archived: "已归档",
 };
+
+export function priorityLabel(priority: string, locale: Locale = "zh-CN") {
+  if (locale === "zh-CN") return PRIORITY_LABEL[priority] ?? priority;
+  return ({ critical: "Critical", high: "High", medium: "Medium", low: "Low" } as Record<string, string>)[priority] ?? priority;
+}
+
+export function statusLabel(status: string, locale: Locale = "zh-CN") {
+  if (locale === "zh-CN") return STATUS_LABEL[status] ?? status;
+  return ({ active: "Active", paused: "Paused", done: "Completed", archived: "Archived" } as Record<string, string>)[status] ?? status;
+}

@@ -9,16 +9,17 @@ import {
   Command,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const nav = [
-  { to: "/", label: "指挥中心", icon: LayoutDashboard, code: "CMD-01" },
-  { to: "/folders", label: "任务舱库", icon: FolderKanban, code: "CMD-02" },
-  { to: "/integrations", label: "接口舱", icon: Plug, code: "CMD-03" },
-  { to: "/workflow", label: "工作流", icon: Workflow, code: "CMD-04" },
-  { to: "/agents", label: "Agent 控制台", icon: Bot, code: "CMD-05" },
-];
+import { usePreferences } from "@/i18n";
 
 export default function Sidebar() {
+  const { text: t } = usePreferences();
+  const nav = [
+    { to: "/", label: t("指挥中心", "Command center"), icon: LayoutDashboard, code: "CMD-01" },
+    { to: "/folders", label: t("任务舱库", "Mission folders"), icon: FolderKanban, code: "CMD-02" },
+    { to: "/integrations", label: t("接口舱", "Integrations"), icon: Plug, code: "CMD-03" },
+    { to: "/workflow", label: t("工作流", "Workflows"), icon: Workflow, code: "CMD-04" },
+    { to: "/agents", label: t("Agent 控制台", "Agent console"), icon: Bot, code: "CMD-05" },
+  ];
   return (
     <aside className="w-[220px] shrink-0 h-full flex flex-col border-r border-phosphor-400/12 bg-obsidian-900/60 backdrop-blur-md relative">
       {/* 品牌 */}
@@ -46,7 +47,7 @@ export default function Sidebar() {
       {/* 导航 */}
       <nav className="flex-1 px-2 py-3 overflow-y-auto">
         <div className="px-2 mb-2 text-[9px] uppercase tracking-[0.25em] text-ink-faint">
-          导航 / NAV
+          {t("导航", "Navigation")} / NAV
         </div>
         <ul className="space-y-1">
           {nav.map((item) => (
@@ -100,7 +101,7 @@ export default function Sidebar() {
           className="w-full mt-1 flex items-center gap-2 px-2 py-1.5 text-[10px] text-ink-faint hover:text-ink-muted border border-white/5 hover:border-white/10 transition-colors"
         >
           <Settings className="w-3 h-3" strokeWidth={1.5} />
-          <span className="uppercase tracking-wider">设置</span>
+          <span className="uppercase tracking-wider">{t("设置", "Settings")}</span>
         </NavLink>
       </div>
     </aside>

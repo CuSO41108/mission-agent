@@ -15,40 +15,7 @@ import {
 import { useMissionStore } from "@/store/useMissionStore";
 import { relativeTime, shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const STRATEGIES = [
-  {
-    key: "follow_up",
-    label: "每日跟进",
-    desc: "在每个舱体截止前主动提醒，滚动推进待办",
-    runs: 142,
-  },
-  {
-    key: "material_collect",
-    label: "材料归集",
-    desc: "从邮件/社交接口拉取相关材料并归类入库",
-    runs: 87,
-  },
-  {
-    key: "progress_sync",
-    label: "进度播报",
-    desc: "每日固定时间同步进度至接口与副驾面板",
-    runs: 36,
-  },
-  {
-    key: "custom",
-    label: "自定义规则",
-    desc: "按工作流规则组合执行，含跨舱联动",
-    runs: 12,
-  },
-];
-
-const PERMISSIONS = [
-  { key: "read", label: "读取", icon: Eye },
-  { key: "write", label: "写入", icon: PencilLine },
-  { key: "notify", label: "通知", icon: Bell },
-  { key: "create_subtask", label: "建子任务", icon: ListPlus },
-] as const;
+import { usePreferences } from "@/i18n";
 
 const AUDIT_LOG = [
   { id: 1, time: Date.now() - 22 * 60000, action: "Agent「Q3 财务复盘」拉取 Stripe 对账单", type: "sync", actor: "f-001" },
@@ -60,20 +27,33 @@ const AUDIT_LOG = [
 ];
 
 const TYPE_COLOR: Record<string, string> = {
-  sync: "#00E5D4",
-  create: "#9D8CFF",
-  notify: "#FFB547",
-  update: "#7FD1B9",
-  warn: "#FF6B6B",
+  sync: "rgb(var(--phosphor-400))",
+  create: "rgb(var(--violet))",
+  notify: "rgb(var(--amber-500))",
+  update: "rgb(var(--jade))",
+  warn: "rgb(var(--coral))",
 };
 
 export default function Agents() {
+  const { locale, text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
   const activeAgents = folders.filter((f) => f.agentConfig.enabled);
   const totalActions = folders.reduce(
     (s, f) => s + f.timeline.filter((t) => t.actor === "agent").length,
     0
   );
+  const strategies = [
+    { key: "follow_up", label: t("每日跟进", "Daily follow-up"), desc: t("在每个舱体截止前主动提醒，滚动推进待办", "Proactively remind before deadlines and advance todos."), runs: 142 },
+    { key: "material_collect", label: t("材料归集", "Material collection"), desc: t("从邮件/社交接口拉取相关材料并归类入库", "Collect relevant material from email and social integrations."), runs: 87 },
+    { key: "progress_sync", label: t("进度播报", "Progress digest"), desc: t("每日固定时间同步进度至接口与副驾面板", "Sync progress to integrations and the copilot at a set time."), runs: 36 },
+    { key: "custom", label: t("自定义规则", "Custom rule"), desc: t("按工作流规则组合执行，含跨舱联动", "Compose workflow rules, including cross-folder actions."), runs: 12 },
+  ];
+  const permissions = [
+    { key: "read", label: t("读取", "Read"), icon: Eye },
+    { key: "write", label: t("写入", "Write"), icon: PencilLine },
+    { key: "notify", label: t("通知", "Notify"), icon: Bell },
+    { key: "create_subtask", label: t("建子任务", "Create subtask"), icon: ListPlus },
+  ] as const;
 
   return (
     <div className="p-5 space-y-5 max-w-[1400px] mx-auto">
@@ -84,12 +64,15 @@ export default function Agents() {
             /// AGENT CONTROL CENTER
           </p>
           <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            Agent 控制台 ·{" "}
+            {t("Agent 控制台", "Agent console")} ·{" "}
             <span className="text-phosphor-400 text-glow-phosphor">{activeAgents.length}</span>
             <span className="text-ink-faint text-lg"> ONLINE</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
-            {activeAgents.length} 个 Agent 在线 · 累计执行 {totalActions} 次自主动作 · 全程审计可回滚
+            {t(
+              `${activeAgents.length} 个 Agent 在线 · 累计执行 ${totalActions} 次自主动作 · 全程审计可回滚`,
+              `${activeAgents.length} Agents online · ${totalActions} autonomous actions · all changes are auditable and reversible`,
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -108,7 +91,7 @@ export default function Agents() {
               <div className="flex items-center gap-2">
                 <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
                 <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                  Agent 舰队 · FLEET
+                  {t("Agent 舰队", "Agent fleet")} · FLEET
                 </h3>
               </div>
               <span className="text-[9px] data-mono text-ink-faint">
@@ -149,12 +132,12 @@ export default function Agents() {
                     <p className="text-[12px] text-ink truncate">{f.name}</p>
                     <p className="text-[9px] data-mono text-ink-faint mt-0.5">
                       STRATEGY: {f.agentConfig.strategy.toUpperCase()}
-                      {f.agentConfig.lastAction && ` · LAST: ${relativeTime(f.agentConfig.lastAction)}`}
+                      {f.agentConfig.lastAction && ` · LAST: ${relativeTime(f.agentConfig.lastAction, locale)}`}
                     </p>
                   </div>
                   {/* 权限指示 */}
                   <div className="flex items-center gap-1 shrink-0">
-                    {PERMISSIONS.map((p) => {
+                    {permissions.map((p) => {
                       const on = f.agentConfig.permissions[p.key];
                       return (
                         <span
@@ -193,12 +176,12 @@ export default function Agents() {
               <div className="flex items-center gap-2">
                 <Zap className="w-3 h-3 text-amber-400" strokeWidth={1.5} />
                 <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                  策略库 · STRATEGY PRESETS
+                  {t("策略库", "Strategy presets")} · STRATEGY PRESETS
                 </h3>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
-              {STRATEGIES.map((s) => (
+              {strategies.map((s) => (
                 <div
                   key={s.key}
                   className="px-3 py-2.5 border border-white/5 hover:border-phosphor-400/30 hover:bg-phosphor-400/3 transition-all cursor-pointer"
@@ -220,7 +203,7 @@ export default function Agents() {
             <div className="flex items-center gap-2">
               <Shield className="w-3 h-3 text-violet" strokeWidth={1.5} />
               <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                审计日志 · AUDIT
+                {t("审计日志", "Audit log")} · AUDIT
               </h3>
             </div>
             <button className="flex items-center gap-1 text-[9px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors">
@@ -249,7 +232,7 @@ export default function Agents() {
                     </div>
                   </div>
                   <button className="opacity-0 group-hover:opacity-100 text-[9px] data-mono text-coral hover:underline transition-opacity">
-                    回滚
+                    {t("回滚", "Rollback")}
                   </button>
                 </div>
               );
@@ -258,7 +241,7 @@ export default function Agents() {
           <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between text-[9px] data-mono text-ink-faint">
             <span className="flex items-center gap-1.5">
               <Activity className="w-2.5 h-2.5 text-jade" strokeWidth={1.5} />
-              完整性校验通过
+              {t("完整性校验通过", "Integrity check passed")}
             </span>
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="w-2.5 h-2.5 text-jade" strokeWidth={1.5} />

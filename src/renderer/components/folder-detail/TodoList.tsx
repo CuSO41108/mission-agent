@@ -4,6 +4,7 @@ import type { Todo } from "@/types";
 import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 interface TodoListProps {
   folderId: string;
@@ -11,6 +12,7 @@ interface TodoListProps {
 }
 
 export default function TodoList({ folderId, todos }: TodoListProps) {
+  const { text: translate } = usePreferences();
   const toggle = useMissionStore((s) => s.toggleTodo);
   const [expanded, setExpanded] = useState<Set<string>>(new Set([todos[0]?.id]));
 
@@ -91,7 +93,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                     className={cn("w-2.5 h-2.5 transition-transform", isExpanded && "rotate-90")}
                     strokeWidth={1.5}
                   />
-                  {t.subtasks.length} 子任务
+                  {t.subtasks.length} {t.subtasks.length === 1 ? translate("子任务", "subtask") : translate("子任务", "subtasks")}
                 </button>
               )}
             </div>
@@ -114,7 +116,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
         <div className="flex items-center gap-2">
           <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
           <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-            待办清单
+            {translate("待办清单", "Todo list")}
           </h3>
         </div>
         <span className="text-[10px] data-mono text-ink-faint">
@@ -124,7 +126,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
       <div className="flex-1 overflow-y-auto py-2 space-y-0.5">
         {todos.map((t) => renderTodo(t))}
         <button className="w-full mt-2 px-4 py-2 text-[11px] text-ink-faint hover:text-phosphor-400 text-left border border-dashed border-white/5 hover:border-phosphor-400/30 transition-all">
-          + 添加待办…
+          + {translate("添加待办…", "Add todo…")}
         </button>
       </div>
     </div>

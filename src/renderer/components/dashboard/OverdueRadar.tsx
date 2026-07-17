@@ -3,12 +3,14 @@ import { AlertTriangle, ArrowRight } from "lucide-react";
 import type { TaskFolder } from "@/types";
 import PriorityBadge from "@/components/ui/PriorityBadge";
 import { relativeTime } from "@/lib/format";
+import { usePreferences } from "@/i18n";
 
 interface OverdueRadarProps {
   folders: TaskFolder[];
 }
 
 export default function OverdueRadar({ folders }: OverdueRadarProps) {
+  const { locale, text: t } = usePreferences();
   const overdue = folders.filter(
     (f) => f.deadline && f.deadline < Date.now() && f.status === "active"
   );
@@ -30,7 +32,7 @@ export default function OverdueRadar({ folders }: OverdueRadarProps) {
             <span className="relative inline-flex w-2 h-2 rounded-full bg-coral shadow-glow-coral" />
           </span>
           <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-            逾期雷达
+            {t("逾期雷达", "Deadline radar")}
           </h3>
         </div>
         <span className="text-[9px] data-mono text-coral">{overdue.length} OVERDUE</span>
@@ -40,7 +42,7 @@ export default function OverdueRadar({ folders }: OverdueRadarProps) {
         {items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-8">
             <span className="w-2 h-2 bg-jade mb-2 animate-pulse-dot" />
-            <p className="text-[11px] text-ink-muted">无逾期 · 全部在线</p>
+            <p className="text-[11px] text-ink-muted">{t("无逾期 · 全部在线", "No overdue items · all clear")}</p>
           </div>
         ) : (
           items.map((f) => {
@@ -68,7 +70,7 @@ export default function OverdueRadar({ folders }: OverdueRadarProps) {
                         isOverdue ? "text-coral" : "text-amber-400"
                       }`}
                     >
-                      {relativeTime(f.deadline)}
+                      {relativeTime(f.deadline, locale)}
                     </span>
                   </div>
                 </div>

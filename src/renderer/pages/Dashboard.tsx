@@ -8,8 +8,11 @@ import OverdueRadar from "@/components/dashboard/OverdueRadar";
 import AgentFeed from "@/components/dashboard/AgentFeed";
 import ProgressRing from "@/components/ui/ProgressRing";
 import { shortTime } from "@/lib/format";
+import { usePreferences } from "@/i18n";
+import { themeAccent } from "@/lib/theme";
 
 export default function Dashboard() {
+  const { text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
   const activities = useMissionStore((s) => s.agentActivities);
 
@@ -33,7 +36,7 @@ export default function Dashboard() {
   // 分舱进度段
   const segments = activeFolders.slice(0, 6).map((f) => ({
     value: f.progress,
-    color: f.coverColor,
+    color: themeAccent(f.coverColor),
   }));
 
   return (
@@ -49,22 +52,24 @@ export default function Dashboard() {
             /// MISSION BRIEFING · {shortTime(Date.now())}
           </p>
           <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            指挥中心 ·{" "}
+            {t("指挥中心", "Command center")} ·{" "}
             <span className="text-phosphor-400 text-glow-phosphor">ONLINE</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
-            当前 {activeFolders.length} 个舱体活跃，{activities.length} 条 Agent 事件待审。
-            建议优先处理今日截止事项。
+            {t(
+              `当前 ${activeFolders.length} 个舱体活跃，${activities.length} 条 Agent 事件待审。建议优先处理今日截止事项。`,
+              `${activeFolders.length} active folders and ${activities.length} Agent events are awaiting review. Prioritize today's deadlines.`,
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button className="btn-ghost">
             <Radio className="w-3 h-3" strokeWidth={1.5} />
-            同步
+            {t("同步", "Sync")}
           </button>
           <Link to="/folders" className="btn-phosphor">
             <Plus className="w-3 h-3" strokeWidth={2} />
-            新建舱体
+            {t("新建舱体", "New folder")}
           </Link>
         </div>
       </motion.div>
@@ -80,14 +85,14 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <ListTodo className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
               <h2 className="font-display text-[12px] uppercase tracking-[0.2em] text-ink">
-                今日焦点 · TODAY FOCUS
+                {t("今日焦点", "Today’s focus")} · TODAY FOCUS
               </h2>
             </div>
             <Link
               to="/folders"
               className="flex items-center gap-1 text-[10px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors"
             >
-              查看全部 <ChevronRight className="w-3 h-3" strokeWidth={1.5} />
+              {t("查看全部", "View all")} <ChevronRight className="w-3 h-3" strokeWidth={1.5} />
             </Link>
           </div>
 
@@ -125,7 +130,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2 mb-1">
                   <Gauge className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
                   <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                    全局进度
+                    {t("全局进度", "Overall progress")}
                   </h3>
                 </div>
                 <div className="flex items-baseline gap-2 mb-3">
@@ -146,7 +151,7 @@ export default function Dashboard() {
                     >
                       <span
                         className="w-1.5 h-1.5 shrink-0"
-                        style={{ background: f.coverColor }}
+                        style={{ background: themeAccent(f.coverColor) }}
                       />
                       <span className="flex-1 text-ink-muted truncate">{f.name}</span>
                       <span className="data-mono text-ink-faint">{f.progress}%</span>
@@ -174,14 +179,14 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
               <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                接口流量 · 24H
+                {t("接口流量", "Integration traffic")} · 24H
               </h3>
             </div>
             <Link
               to="/integrations"
               className="text-[10px] data-mono text-ink-faint hover:text-phosphor-400"
             >
-              管理 →
+              {t("管理", "Manage")} →
             </Link>
           </div>
           <InterfaceBars />

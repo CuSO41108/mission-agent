@@ -11,9 +11,13 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Languages,
+  Moon,
+  Sun,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 import type {
   AppConfig,
   DeepSeekConfig,
@@ -25,6 +29,7 @@ import type {
 type TestStatus = "idle" | "testing" | "success" | "error";
 
 export default function Settings() {
+  const { locale, setLocale, theme, setTheme, text: t } = usePreferences();
   const [config, setConfigState] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -68,7 +73,7 @@ export default function Settings() {
     const result = await window.missionConsole.testDeepSeek();
     if (result.ok) {
       setTestStatus("success");
-      setTestMessage(`连接成功 · 模型 ${result.model} 回复：${result.content.slice(0, 60)}`);
+      setTestMessage(`${t("连接成功 · 模型", "Connected · Model")} ${result.model}: ${result.content.slice(0, 60)}`);
     } else {
       setTestStatus("error");
       setTestMessage(result.error);
@@ -89,7 +94,7 @@ export default function Settings() {
         {/* 页头 */}
         <header className="flex items-center justify-between">
           <div>
-            <h1 className="font-display font-bold text-2xl tracking-wide text-ink">设置</h1>
+            <h1 className="font-display font-bold text-2xl tracking-wide text-ink">{t("设置", "Settings")}</h1>
             <p className="text-[11px] text-ink-faint mt-1 data-mono">
               CONFIG · userData/config.yaml
             </p>
@@ -97,16 +102,80 @@ export default function Settings() {
           {saving && (
             <div className="flex items-center gap-2 text-[11px] text-phosphor-400">
               <Loader2 className="w-3 h-3 animate-spin" />
-              保存中...
+              {t("保存中...", "Saving...")}
             </div>
           )}
         </header>
 
+        <Section
+          icon={Languages}
+          title={t("外观与语言", "Appearance & language")}
+          desc={t("界面显示偏好", "Interface display preferences")}
+          code="UI"
+        >
+          <Field label={t("界面语言", "Display language")}>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setLocale("zh-CN")}
+                className={cn(
+                  "flex items-center justify-between border px-3 py-2 text-left transition-colors",
+                  locale === "zh-CN"
+                    ? "border-phosphor-400/60 bg-phosphor-400/10 text-phosphor-100"
+                    : "border-white/10 text-ink-muted hover:border-phosphor-400/30",
+                )}
+              >
+                <span className="text-[12px] font-medium">简体中文</span>
+                <span className="text-[10px] data-mono text-ink-faint">ZH</span>
+              </button>
+              <button
+                onClick={() => setLocale("en-US")}
+                className={cn(
+                  "flex items-center justify-between border px-3 py-2 text-left transition-colors",
+                  locale === "en-US"
+                    ? "border-phosphor-400/60 bg-phosphor-400/10 text-phosphor-100"
+                    : "border-white/10 text-ink-muted hover:border-phosphor-400/30",
+                )}
+              >
+                <span className="text-[12px] font-medium">English</span>
+                <span className="text-[10px] data-mono text-ink-faint">EN</span>
+              </button>
+            </div>
+          </Field>
+          <Field label={t("界面主题", "Color theme")}>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setTheme("dark")}
+                className={cn(
+                  "flex items-center gap-2 border px-3 py-2 text-left transition-colors",
+                  theme === "dark"
+                    ? "border-phosphor-400/60 bg-phosphor-400/10 text-phosphor-100"
+                    : "border-white/10 text-ink-muted hover:border-phosphor-400/30",
+                )}
+              >
+                <Moon className="w-3.5 h-3.5" strokeWidth={1.5} />
+                <span className="text-[12px] font-medium">{t("暗色", "Dark")}</span>
+              </button>
+              <button
+                onClick={() => setTheme("light")}
+                className={cn(
+                  "flex items-center gap-2 border px-3 py-2 text-left transition-colors",
+                  theme === "light"
+                    ? "border-phosphor-400/60 bg-phosphor-400/10 text-phosphor-100"
+                    : "border-white/10 text-ink-muted hover:border-phosphor-400/30",
+                )}
+              >
+                <Sun className="w-3.5 h-3.5" strokeWidth={1.5} />
+                <span className="text-[12px] font-medium">{t("亮色", "Light")}</span>
+              </button>
+            </div>
+          </Field>
+        </Section>
+
         {/* 1. DeepSeek 配置 */}
         <Section
           icon={KeyRound}
-          title="DeepSeek 配置"
-          desc="LLM 接入 · OpenAI 兼容协议"
+          title={t("DeepSeek 配置", "DeepSeek configuration")}
+          desc={t("LLM 接入 · OpenAI 兼容协议", "LLM connection · OpenAI-compatible API")}
           code="LLM"
         >
           <Field label="API Key">
@@ -121,21 +190,21 @@ export default function Settings() {
               <button
                 onClick={() => setShowApiKey((v) => !v)}
                 className="btn-icon"
-                title={showApiKey ? "隐藏" : "显示"}
+                title={showApiKey ? t("隐藏", "Hide") : t("显示", "Show")}
               >
                 {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </Field>
 
-          <Field label="模型">
+          <Field label={t("模型", "Model")}>
             <select
               value={draftModel}
               onChange={(e) => setDraftModel(e.target.value)}
               className="input"
             >
-              <option value="deepseek-chat">deepseek-chat（通用对话）</option>
-              <option value="deepseek-reasoner">deepseek-reasoner（推理模型）</option>
+              <option value="deepseek-chat">deepseek-chat ({t("通用对话", "general chat")})</option>
+              <option value="deepseek-reasoner">deepseek-reasoner ({t("推理模型", "reasoning")})</option>
             </select>
           </Field>
 
@@ -160,7 +229,7 @@ export default function Settings() {
               {testStatus === "testing" ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
               ) : null}
-              测试连接
+              {t("测试连接", "Test connection")}
             </button>
             <button
               onClick={() =>
@@ -174,18 +243,18 @@ export default function Settings() {
               }
               className="btn-ghost"
             >
-              保存
+              {t("保存", "Save")}
             </button>
             {testStatus === "success" && (
               <span className="flex items-center gap-1.5 text-[11px] text-jade">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                连接成功
+                {t("连接成功", "Connected")}
               </span>
             )}
             {testStatus === "error" && (
               <span className="flex items-center gap-1.5 text-[11px] text-rose-400">
                 <AlertCircle className="w-3.5 h-3.5" />
-                连接失败
+                {t("连接失败", "Connection failed")}
               </span>
             )}
           </div>
@@ -205,8 +274,8 @@ export default function Settings() {
         </Section>
 
         {/* 2. 仓库目录 */}
-        <Section icon={FolderOpen} title="仓库目录" desc="归档文件存储位置" code="FS">
-          <Field label="路径">
+        <Section icon={FolderOpen} title={t("仓库目录", "Vault directory")} desc={t("归档文件存储位置", "Location for archived files")} code="FS">
+          <Field label={t("路径", "Path")}>
             <input
               type="text"
               value={config?.storage.vaultDir ?? ""}
@@ -218,13 +287,13 @@ export default function Settings() {
             />
           </Field>
           <p className="text-[11px] text-ink-faint">
-            留空则使用引用模式：只记录文件原路径，不复制。归档模式下文件会复制到此目录的子文件夹。
+            {t("留空则使用引用模式：只记录文件原路径，不复制。归档模式下文件会复制到此目录的子文件夹。", "Leave empty to retain source paths without copying files. Archive mode copies files into subfolders here.")}
           </p>
         </Section>
 
         {/* 3. 心跳调度 */}
-        <Section icon={HeartPulse} title="心跳调度" desc="Agent 自动巡检间隔" code="HB">
-          <Field label={`间隔：${config?.agent.heartbeatIntervalMin ?? 30} 分钟`}>
+        <Section icon={HeartPulse} title={t("心跳调度", "Heartbeat schedule")} desc={t("Agent 自动巡检间隔", "Automatic Agent check interval")} code="HB">
+          <Field label={t(`间隔：${config?.agent.heartbeatIntervalMin ?? 30} 分钟`, `Interval: ${config?.agent.heartbeatIntervalMin ?? 30} minutes`)}>
             <input
               type="range"
               min={5}
@@ -240,28 +309,28 @@ export default function Settings() {
             />
           </Field>
           <Toggle
-            label="心跳开关"
-            desc="关闭后所有 Agent 停止自动巡检"
+            label={t("心跳开关", "Heartbeat")}
+            desc={t("关闭后所有 Agent 停止自动巡检", "Turn off to stop automatic Agent checks")}
             checked={config?.agent.enabled ?? false}
             onChange={(v) => savePartial({ agent: { ...config!.agent, enabled: v } })}
           />
         </Section>
 
         {/* 4. 系统选项 */}
-        <Section icon={Monitor} title="系统选项" desc="桌面应用行为" code="SYS">
+        <Section icon={Monitor} title={t("系统选项", "System options")} desc={t("桌面应用行为", "Desktop app behavior")} code="SYS">
           <Toggle
-            label="开机自启"
-            desc="系统登录时自动启动 Mission Console"
+            label={t("开机自启", "Launch at startup")}
+            desc={t("系统登录时自动启动 Mission Console", "Start Mission Console when you sign in")}
             checked={config?.system.autoLaunch ?? false}
             onChange={(v) => savePartial({ system: { ...config!.system, autoLaunch: v } })}
           />
           <Toggle
-            label="托盘图标"
-            desc="关闭后窗口隐藏时无托盘入口"
+            label={t("托盘图标", "Tray icon")}
+            desc={t("关闭后窗口隐藏时无托盘入口", "Hide tray access when the window is closed")}
             checked={config?.system.trayIcon ?? true}
             onChange={(v) => savePartial({ system: { ...config!.system, trayIcon: v } })}
           />
-          <Field label="全局快捷键">
+          <Field label={t("全局快捷键", "Global shortcut")}>
             <input
               type="text"
               value={config?.system.globalShortcut ?? ""}
@@ -275,8 +344,8 @@ export default function Settings() {
         </Section>
 
         {/* 5. 接口凭据（占位，Phase 6/7 接入） */}
-        <Section icon={Mail} title="接口凭据" desc="邮件 / 飞书（Phase 6/7 接入）" code="EXT">
-          <Field label="邮箱地址">
+        <Section icon={Mail} title={t("接口凭据", "Integration credentials")} desc={t("邮件 / 飞书（Phase 6/7 接入）", "Email / Feishu (Phase 6/7)")} code="EXT">
+          <Field label={t("邮箱地址", "Email address")}>
             <input
               type="email"
               value={config?.integrations.email.address ?? ""}
@@ -293,7 +362,7 @@ export default function Settings() {
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="IMAP 主机">
+            <Field label={t("IMAP 主机", "IMAP host")}>
               <input
                 type="text"
                 value={config?.integrations.email.imapHost ?? ""}
@@ -309,7 +378,7 @@ export default function Settings() {
                 className="input"
               />
             </Field>
-            <Field label="IMAP 端口">
+            <Field label={t("IMAP 端口", "IMAP port")}>
               <input
                 type="number"
                 value={config?.integrations.email.imapPort ?? 993}
@@ -326,7 +395,7 @@ export default function Settings() {
             </Field>
           </div>
           <p className="text-[11px] text-ink-faint">
-            接口接入在 Phase 6（邮件 IMAP）/ Phase 7（飞书）实现，此处仅保存凭据。
+            {t("接口接入在 Phase 6（邮件 IMAP）/ Phase 7（飞书）实现，此处仅保存凭据。", "Integrations arrive in Phase 6 (email IMAP) and Phase 7 (Feishu); this section stores credentials only.")}
           </p>
         </Section>
 

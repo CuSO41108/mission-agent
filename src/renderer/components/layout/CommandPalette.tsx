@@ -14,6 +14,7 @@ import {
 import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 type ItemKind = "folder" | "todo" | "material";
 
@@ -30,12 +31,6 @@ const KIND_ICON = {
   folder: Folder,
   todo: ListChecks,
   material: FileText,
-};
-
-const KIND_LABEL = {
-  folder: "舱体",
-  todo: "待办",
-  material: "材料",
 };
 
 function highlight(text: string, query: string) {
@@ -56,12 +51,18 @@ function highlight(text: string, query: string) {
 }
 
 export default function CommandPalette() {
+  const { text: t } = usePreferences();
   const open = useMissionStore((s) => s.commandPaletteOpen);
   const setOpen = useMissionStore((s) => s.setCommandPaletteOpen);
   const folders = useMissionStore((s) => s.folders);
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const kindLabel: Record<ItemKind, string> = {
+    folder: t("舱体", "Folder"),
+    todo: t("待办", "Todo"),
+    material: t("材料", "Material"),
+  };
 
   // 全局快捷键 ⌘K / Ctrl+K
   useEffect(() => {
@@ -185,7 +186,7 @@ export default function CommandPalette() {
                   setQuery(e.target.value);
                   setActiveIdx(0);
                 }}
-                placeholder="搜索舱体 / 待办 / 材料…"
+                placeholder={t("搜索舱体 / 待办 / 材料…", "Search folders / todos / materials…")}
                 className="flex-1 bg-transparent text-[14px] text-ink placeholder:text-ink-faint focus:outline-none"
               />
               <button
@@ -200,7 +201,7 @@ export default function CommandPalette() {
             <div className="max-h-[50vh] overflow-y-auto py-2">
               {filtered.length === 0 ? (
                 <div className="px-4 py-8 text-center text-[12px] text-ink-faint">
-                  未匹配到结果
+                  {t("未匹配到结果", "No matching results")}
                 </div>
               ) : (
                 filtered.map((item, idx) => {
@@ -236,7 +237,7 @@ export default function CommandPalette() {
                         </div>
                       </div>
                       <span className="text-[9px] data-mono text-phosphor-400/50 uppercase tracking-wider shrink-0">
-                        {KIND_LABEL[item.kind]}
+                        {kindLabel[item.kind]}
                       </span>
                     </button>
                   );
@@ -250,19 +251,19 @@ export default function CommandPalette() {
                 <span className="flex items-center gap-1">
                   <ArrowUp className="w-2.5 h-2.5" />
                   <ArrowDown className="w-2.5 h-2.5" />
-                  选择
+                  {t("选择", "Select")}
                 </span>
                 <span className="flex items-center gap-1">
                   <CornerDownLeft className="w-2.5 h-2.5" />
-                  跳转
+                  {t("跳转", "Open")}
                 </span>
                 <span className="flex items-center gap-1">
                   ESC
-                  关闭
+                  {t("关闭", "Close")}
                 </span>
               </div>
               <span className="text-phosphor-400/60">
-                {filtered.length} / {allItems.length} 项
+                {filtered.length} / {allItems.length} {t("项", "items")}
               </span>
             </div>
           </motion.div>

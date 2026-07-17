@@ -4,10 +4,68 @@
 
 @layer base {
   :root {
-    --bg-obsidian: #0a0e14;
-    --bg-panel: #131922;
+    --obsidian-950: 7 10 15;
+    --obsidian-900: 10 14 20;
+    --obsidian-850: 15 20 28;
+    --obsidian-800: 19 25 34;
+    --obsidian-700: 26 33 44;
+    --obsidian-600: 34 43 56;
+    --ink: 230 237 243;
+    --ink-muted: 139 152 165;
+    --ink-faint: 92 103 115;
+    --phosphor-50: 230 255 251;
+    --phosphor-100: 179 255 245;
+    --phosphor-200: 128 255 236;
+    --phosphor-300: 77 255 226;
+    --phosphor-400: 0 229 212;
+    --phosphor-500: 0 199 184;
+    --phosphor-600: 0 168 155;
+    --phosphor-700: 0 138 128;
+    --phosphor-800: 0 107 100;
+    --phosphor-900: 0 77 72;
+    --amber-400: 255 206 107;
+    --amber-500: 255 181 71;
+    --amber-600: 232 154 42;
+    --jade: 127 209 185;
+    --coral: 255 107 107;
+    --violet: 157 140 255;
+    --bg-obsidian: rgb(var(--obsidian-900));
+    --bg-panel: rgb(var(--obsidian-800));
     --border-phosphor: rgba(0, 229, 212, 0.18);
     color-scheme: dark;
+  }
+
+  :root[data-theme="light"] {
+    --obsidian-950: 241 246 248;
+    --obsidian-900: 247 251 252;
+    --obsidian-850: 237 244 246;
+    --obsidian-800: 255 255 255;
+    --obsidian-700: 222 232 235;
+    --obsidian-600: 203 217 221;
+    --ink: 20 40 46;
+    --ink-muted: 69 91 98;
+    --ink-faint: 103 124 130;
+    /* Light mode uses ink-grade accents so text and controls meet readable contrast. */
+    --phosphor-50: 0 91 84;
+    --phosphor-100: 0 100 92;
+    --phosphor-200: 0 110 101;
+    --phosphor-300: 0 119 109;
+    --phosphor-400: 0 111 102;
+    --phosphor-500: 0 98 90;
+    --phosphor-600: 0 85 78;
+    --phosphor-700: 0 72 66;
+    --phosphor-800: 0 59 54;
+    --phosphor-900: 0 46 42;
+    --amber-400: 159 91 0;
+    --amber-500: 143 78 0;
+    --amber-600: 120 64 0;
+    --jade: 20 111 86;
+    --coral: 190 55 55;
+    --violet: 91 75 185;
+    --bg-obsidian: rgb(var(--obsidian-900));
+    --bg-panel: rgb(var(--obsidian-800));
+    --border-phosphor: rgba(0, 147, 137, 0.25);
+    color-scheme: light;
   }
 
   html,
@@ -16,10 +74,18 @@
     height: 100%;
   }
 
+  :root[data-theme="light"] #root {
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(0, 180, 165, 0.1), transparent 42%),
+      radial-gradient(circle at 80% 100%, rgba(110, 91, 220, 0.06), transparent 40%),
+      linear-gradient(rgba(20, 54, 62, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(20, 54, 62, 0.045) 1px, transparent 1px);
+  }
+
   body {
     margin: 0;
     background-color: var(--bg-obsidian);
-    color: #e6edf3;
+    color: rgb(var(--ink));
     font-family: "IBM Plex Sans", system-ui, sans-serif;
     font-feature-settings: "ss01", "cv01";
     -webkit-font-smoothing: antialiased;
@@ -72,7 +138,7 @@
   /* 面板基础：半透明 + 磷光青边框 + 顶部高光条 */
   .panel {
     position: relative;
-    background-color: rgba(19, 25, 34, 0.7);
+    background-color: rgb(var(--obsidian-800) / 0.7);
     border: 1px solid var(--border-phosphor);
     backdrop-filter: blur(8px);
   }
@@ -179,7 +245,7 @@
     text-shadow: 0 0 12px rgba(255, 107, 107, 0.4);
   }
   .bg-panel-solid {
-    background-color: #131922;
+    background-color: var(--bg-panel);
   }
   .clip-corner {
     clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));

@@ -4,6 +4,8 @@ import type { TaskFolder } from "@/types";
 import PriorityBadge from "@/components/ui/PriorityBadge";
 import { countdown } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
+import { accentTint, themeAccent } from "@/lib/theme";
 
 interface FocusCardProps {
   folder: TaskFolder;
@@ -11,9 +13,11 @@ interface FocusCardProps {
 }
 
 export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) {
-  const cd = countdown(folder.deadline);
+  const { locale, text: t } = usePreferences();
+  const cd = countdown(folder.deadline, locale);
   const isHero = variant === "hero";
   const doneTodos = folder.todos.filter((t) => t.done).length;
+  const coverColor = themeAccent(folder.coverColor);
 
   return (
     <Link
@@ -23,21 +27,21 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
         "hover:border-phosphor-400/50 hover:shadow-glow-phosphor",
         isHero ? "p-5 h-full" : "p-3.5 h-full"
       )}
-      style={{ borderColor: `${folder.coverColor}30` }}
+      style={{ borderColor: accentTint(folder.coverColor, 0.19) }}
     >
       {/* 优先级条 */}
       <span
         className="absolute left-0 top-0 bottom-0 w-[3px]"
         style={{
-          background: folder.coverColor,
-          boxShadow: `0 0 12px ${folder.coverColor}`,
+          background: coverColor,
+          boxShadow: `0 0 12px ${coverColor}`,
         }}
       />
 
       {/* 背景大字水印 */}
       <span
         className="pointer-events-none absolute -right-2 -bottom-4 font-display font-bold opacity-[0.04] leading-none select-none"
-        style={{ fontSize: isHero ? 120 : 80, color: folder.coverColor }}
+        style={{ fontSize: isHero ? 120 : 80, color: coverColor }}
       >
         {folder.progress}
       </span>
@@ -64,7 +68,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
 
         {isHero && (
           <p className="text-[11px] text-ink-muted leading-relaxed mb-4 line-clamp-2">
-            {folder.todos[0]?.title ?? "暂无待办"}
+            {folder.todos[0]?.title ?? t("暂无待办", "No todos yet")}
           </p>
         )}
 
@@ -100,7 +104,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
                   "data-mono font-bold text-glow-phosphor",
                   isHero ? "text-xl" : "text-sm"
                 )}
-                style={{ color: folder.coverColor }}
+                style={{ color: coverColor }}
               >
                 {folder.progress}%
               </span>
@@ -116,8 +120,8 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
               className="h-full transition-all duration-700"
               style={{
                 width: `${folder.progress}%`,
-                background: folder.coverColor,
-                boxShadow: `0 0 8px ${folder.coverColor}`,
+                background: coverColor,
+                boxShadow: `0 0 8px ${coverColor}`,
               }}
             />
           </div>

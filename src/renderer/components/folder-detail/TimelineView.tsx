@@ -1,14 +1,15 @@
 import { User, Bot, Server, Cog } from "lucide-react";
 import type { TimelineEntry } from "@/types";
 import { shortTime } from "@/lib/format";
+import { usePreferences } from "@/i18n";
 
 const ACTOR_META: Record<
   TimelineEntry["actor"],
   { icon: typeof User; color: string; label: string }
 > = {
-  human: { icon: User, color: "#FFB547", label: "HUMAN" },
-  agent: { icon: Bot, color: "#00E5D4", label: "AGENT" },
-  system: { icon: Server, color: "#9D8CFF", label: "SYS" },
+  human: { icon: User, color: "rgb(var(--amber-500))", label: "HUMAN" },
+  agent: { icon: Bot, color: "rgb(var(--phosphor-400))", label: "AGENT" },
+  system: { icon: Server, color: "rgb(var(--violet))", label: "SYS" },
 };
 
 interface TimelineViewProps {
@@ -16,6 +17,7 @@ interface TimelineViewProps {
 }
 
 export default function TimelineView({ entries }: TimelineViewProps) {
+  const { text: t } = usePreferences();
   const sorted = [...entries].sort((a, b) => b.timestamp - a.timestamp);
 
   return (
@@ -24,7 +26,7 @@ export default function TimelineView({ entries }: TimelineViewProps) {
         <div className="flex items-center gap-2">
           <Cog className="w-3 h-3 text-phosphor-400" strokeWidth={1.5} />
           <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-            进度时间线
+            {t("进度时间线", "Progress timeline")}
           </h3>
         </div>
         <span className="text-[10px] data-mono text-ink-faint">
@@ -45,8 +47,8 @@ export default function TimelineView({ entries }: TimelineViewProps) {
                   <div
                     className="relative z-10 w-[30px] h-[30px] shrink-0 flex items-center justify-center border bg-obsidian-900"
                     style={{
-                      borderColor: `${meta.color}50`,
-                      boxShadow: `0 0 0 3px #0a0e14`,
+                      borderColor: `color-mix(in srgb, ${meta.color} 31%, transparent)`,
+                      boxShadow: "0 0 0 3px var(--bg-obsidian)",
                     }}
                   >
                     <Icon className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: meta.color }} />

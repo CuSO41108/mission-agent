@@ -13,20 +13,7 @@ import type { AgentConfig } from "@/types";
 import { useMissionStore } from "@/store/useMissionStore";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const STRATEGIES: { key: AgentConfig["strategy"]; label: string; desc: string }[] = [
-  { key: "follow_up", label: "跟进催办", desc: "在截止前主动提醒并推进" },
-  { key: "material_collect", label: "材料归集", desc: "从接口拉取相关材料入库" },
-  { key: "progress_sync", label: "进度同步", desc: "定期同步进度至接口" },
-  { key: "custom", label: "自定义", desc: "按工作流规则执行" },
-];
-
-const PERMISSIONS = [
-  { key: "read", label: "读取", icon: Eye },
-  { key: "write", label: "写入", icon: PencilLine },
-  { key: "notify", label: "通知", icon: Bell },
-  { key: "create_subtask", label: "建子任务", icon: ListPlus },
-] as const;
+import { usePreferences } from "@/i18n";
 
 interface AgentControlPanelProps {
   folderId: string;
@@ -34,7 +21,20 @@ interface AgentControlPanelProps {
 }
 
 export default function AgentControlPanel({ folderId, config }: AgentControlPanelProps) {
+  const { locale, text: t } = usePreferences();
   const toggleAgent = useMissionStore((s) => s.toggleAgent);
+  const strategies: { key: AgentConfig["strategy"]; label: string; desc: string }[] = [
+    { key: "follow_up", label: t("跟进催办", "Follow up"), desc: t("在截止前主动提醒并推进", "Remind and move work forward before deadlines.") },
+    { key: "material_collect", label: t("材料归集", "Collect materials"), desc: t("从接口拉取相关材料入库", "Collect related material from integrations.") },
+    { key: "progress_sync", label: t("进度同步", "Sync progress"), desc: t("定期同步进度至接口", "Sync progress to integrations on a schedule.") },
+    { key: "custom", label: t("自定义", "Custom"), desc: t("按工作流规则执行", "Run according to workflow rules.") },
+  ];
+  const permissions = [
+    { key: "read", label: t("读取", "Read"), icon: Eye },
+    { key: "write", label: t("写入", "Write"), icon: PencilLine },
+    { key: "notify", label: t("通知", "Notify"), icon: Bell },
+    { key: "create_subtask", label: t("建子任务", "Create subtask"), icon: ListPlus },
+  ] as const;
 
   return (
     <div className="flex flex-col h-full">
@@ -59,7 +59,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
           </div>
           <div>
             <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink leading-none">
-              Agent 托管
+              {t("Agent 托管", "Agent control")}
             </h3>
             <p className="text-[9px] data-mono mt-1 leading-none flex items-center gap-1">
               <span
@@ -98,11 +98,11 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
           <div className="flex items-center gap-1.5 mb-2">
             <Zap className="w-3 h-3 text-amber-400" strokeWidth={1.5} />
             <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              托管策略
+              {t("托管策略", "Control strategy")}
             </span>
           </div>
           <div className="space-y-1">
-            {STRATEGIES.map((s) => {
+            {strategies.map((s) => {
               const active = config.strategy === s.key;
               return (
                 <button
@@ -139,11 +139,11 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
           <div className="flex items-center gap-1.5 mb-2">
             <Shield className="w-3 h-3 text-violet" strokeWidth={1.5} />
             <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              权限边界
+              {t("权限边界", "Permissions")}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
-            {PERMISSIONS.map((p) => {
+            {permissions.map((p) => {
               const on = config.permissions[p.key];
               return (
                 <div
@@ -177,7 +177,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
           <div className="flex items-center gap-1.5 mb-2">
             <Activity className="w-3 h-3 text-jade" strokeWidth={1.5} />
             <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              最近动作
+              {t("最近动作", "Latest action")}
             </span>
           </div>
           <div className="px-3 py-2 border border-white/5 bg-obsidian-950/40">
@@ -185,19 +185,19 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
               <>
                 <p className="text-[11px] text-ink leading-snug">
                   {config.strategy === "follow_up"
-                    ? "已发送跟进提醒，等待响应"
+                    ? t("已发送跟进提醒，等待响应", "A follow-up reminder was sent; awaiting a response.")
                     : config.strategy === "material_collect"
-                      ? "已从邮件接口归集 2 份材料"
+                      ? t("已从邮件接口归集 2 份材料", "Collected 2 materials from the email integration.")
                       : config.strategy === "progress_sync"
-                        ? "已同步进度至飞书群"
-                        : "已执行自定义规则"}
+                        ? t("已同步进度至飞书群", "Progress was synced to the Feishu group.")
+                        : t("已执行自定义规则", "Custom rule completed.")}
                 </p>
                 <p className="text-[9px] data-mono text-ink-faint mt-1">
-                  {relativeTime(config.lastAction)}
+                  {relativeTime(config.lastAction, locale)}
                 </p>
               </>
             ) : (
-              <p className="text-[11px] text-ink-faint">尚无动作记录</p>
+              <p className="text-[11px] text-ink-faint">{t("尚无动作记录", "No actions recorded yet")}</p>
             )}
           </div>
         </div>

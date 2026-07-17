@@ -15,6 +15,7 @@ import StatusDot from "@/components/ui/StatusDot";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { IntegrationAdapter, IntegrationType } from "@/types";
+import { usePreferences } from "@/i18n";
 
 const TYPE_ICON: Record<IntegrationType, typeof Mail> = {
   email: Mail,
@@ -25,11 +26,11 @@ const TYPE_ICON: Record<IntegrationType, typeof Mail> = {
 };
 
 const TYPE_COLOR: Record<IntegrationType, string> = {
-  email: "#00E5D4",
-  calendar: "#FFB547",
-  social: "#9D8CFF",
-  chat: "#7FD1B9",
-  custom: "#8B98A5",
+  email: "rgb(var(--phosphor-400))",
+  calendar: "rgb(var(--amber-500))",
+  social: "rgb(var(--violet))",
+  chat: "rgb(var(--jade))",
+  custom: "rgb(var(--ink-muted))",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -40,6 +41,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Integrations() {
+  const { locale, text: t } = usePreferences();
   const integrations = useMissionStore((s) => s.integrations);
   const toggle = useMissionStore((s) => s.toggleIntegration);
 
@@ -55,17 +57,20 @@ export default function Integrations() {
             /// INTERFACE BAY
           </p>
           <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            接口舱 ·{" "}
+            {t("接口舱", "Integrations")} ·{" "}
             <span className="text-phosphor-400 text-glow-phosphor">{connected}</span>
             <span className="text-ink-faint text-lg">/{integrations.length}</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
-            已接入 {connected} 个接口 · 今日事件 {totalEvents} 条 · 可扩展适配器插槽就绪
+            {t(
+              `已接入 ${connected} 个接口 · 今日事件 ${totalEvents} 条 · 可扩展适配器插槽就绪`,
+              `${connected} integrations connected · ${totalEvents} events today · adapter slots ready`,
+            )}
           </p>
         </div>
         <button className="btn-phosphor">
           <Plus className="w-3 h-3" strokeWidth={2} />
-          注册适配器
+          {t("注册适配器", "Register adapter")}
         </button>
       </div>
 
@@ -84,7 +89,7 @@ export default function Integrations() {
             <div className="w-10 h-10 border border-phosphor-400/30 flex items-center justify-center mb-2 clip-corner">
               <Plus className="w-4 h-4" strokeWidth={1.5} />
             </div>
-            <p className="text-[11px] font-display uppercase tracking-wider">通用插槽 #{n}</p>
+            <p className="text-[11px] font-display uppercase tracking-wider">{t("通用插槽", "General slot")} #{n}</p>
             <p className="text-[9px] data-mono mt-1">ADAPTER SLOT</p>
           </div>
         ))}
@@ -96,13 +101,13 @@ export default function Integrations() {
           <div className="flex items-center gap-2">
             <Activity className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
             <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-              同步日志 · 最近 24H
+              {t("同步日志", "Sync log")} · {t("最近", "Last")} 24H
             </h3>
           </div>
           <span className="text-[9px] data-mono text-ink-faint">SYNC LOG</span>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-[11px]">
-          {generateSyncLog(integrations).map((line, idx) => (
+          {generateSyncLog(integrations, locale).map((line, idx) => (
             <div key={idx} className="flex items-center gap-2 px-2 py-1 hover:bg-white/3 transition-colors">
               <span className="text-ink-faint shrink-0">{line.time}</span>
               <span
@@ -130,6 +135,7 @@ function IntegrationCard({
   integration: IntegrationAdapter;
   onToggle: () => void;
 }) {
+  const { locale, text: t } = usePreferences();
   const Icon = TYPE_ICON[integration.type];
   const color = TYPE_COLOR[integration.type];
   const isConn = integration.status === "connected";
@@ -140,7 +146,7 @@ function IntegrationCard({
         "panel p-4 relative overflow-hidden flex flex-col h-[200px] transition-all",
         "hover:border-phosphor-400/40"
       )}
-      style={{ borderColor: isConn ? `${color}30` : "rgba(255,255,255,0.08)" }}
+      style={{ borderColor: isConn ? `color-mix(in srgb, ${color} 19%, transparent)` : "rgba(255,255,255,0.08)" }}
     >
       {/* 背景角标 */}
       <Icon
@@ -153,8 +159,8 @@ function IntegrationCard({
         <div
           className="w-10 h-10 flex items-center justify-center border clip-corner"
           style={{
-            borderColor: `${color}50`,
-            backgroundColor: `${color}10`,
+            borderColor: `color-mix(in srgb, ${color} 31%, transparent)`,
+            backgroundColor: `color-mix(in srgb, ${color} 6%, transparent)`,
           }}
         >
           <Icon className="w-4.5 h-4.5" strokeWidth={1.5} style={{ color }} />
@@ -176,16 +182,16 @@ function IntegrationCard({
 
       <div className="relative flex items-center justify-between pt-3 mt-auto border-t border-white/5">
         <div className="flex flex-col">
-          <span className="text-[9px] data-mono text-ink-faint uppercase">最近同步</span>
+          <span className="text-[9px] data-mono text-ink-faint uppercase">{t("最近同步", "Last sync")}</span>
           <span className="text-[10px] data-mono text-ink-muted">
-            {integration.lastSync ? relativeTime(integration.lastSync) : "—"}
+            {integration.lastSync ? relativeTime(integration.lastSync, locale) : "—"}
           </span>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-[9px] data-mono text-ink-faint uppercase">今日事件</span>
+          <span className="text-[9px] data-mono text-ink-faint uppercase">{t("今日事件", "Events today")}</span>
           <span
             className="text-[12px] data-mono font-bold"
-            style={{ color: isConn ? color : "#5C6773" }}
+            style={{ color: isConn ? color : "rgb(var(--ink-faint))" }}
           >
             {integration.eventsToday}
           </span>
@@ -202,7 +208,7 @@ function IntegrationCard({
               : "border-phosphor-400/40 text-phosphor-400 hover:bg-phosphor-400/10"
           )}
         >
-          {isConn ? "断开" : "连接"}
+          {isConn ? t("断开", "Disconnect") : t("连接", "Connect")}
         </button>
         <button className="px-2 py-1.5 border border-white/8 text-ink-faint hover:text-ink hover:border-white/15 transition-colors">
           <Settings className="w-3 h-3" strokeWidth={1.5} />
@@ -212,16 +218,24 @@ function IntegrationCard({
   );
 }
 
-function generateSyncLog(integrations: IntegrationAdapter[]) {
+function generateSyncLog(integrations: IntegrationAdapter[], locale: "zh-CN" | "en-US") {
   const now = new Date();
   const log: { time: string; type: string; source: string; msg: string }[] = [];
-  const templates = [
-    { type: "OK", msg: "拉取完成，{n} 条新事件已入库" },
-    { type: "OK", msg: "推送进度更新至 {target}" },
-    { type: "WARN", msg: "速率接近上限（{n}/min）" },
-    { type: "OK", msg: "OAuth 令牌已自动刷新" },
-    { type: "INFO", msg: "Agent 触发同步，等待响应" },
-  ];
+  const templates = locale === "en-US"
+    ? [
+        { type: "OK", msg: "Fetch complete; {n} new events stored" },
+        { type: "OK", msg: "Progress update sent to {target}" },
+        { type: "WARN", msg: "Rate limit nearly reached ({n}/min)" },
+        { type: "OK", msg: "OAuth token refreshed automatically" },
+        { type: "INFO", msg: "Agent initiated sync; awaiting response" },
+      ]
+    : [
+        { type: "OK", msg: "拉取完成，{n} 条新事件已入库" },
+        { type: "OK", msg: "推送进度更新至 {target}" },
+        { type: "WARN", msg: "速率接近上限（{n}/min）" },
+        { type: "OK", msg: "OAuth 令牌已自动刷新" },
+        { type: "INFO", msg: "Agent 触发同步，等待响应" },
+      ];
   for (let i = 0; i < 14; i++) {
     const t = new Date(now.getTime() - i * 7 * 60000);
     const hh = String(t.getHours()).padStart(2, "0");

@@ -12,8 +12,10 @@ import {
 import type { TaskFolder } from "@/types";
 import PriorityBadge from "@/components/ui/PriorityBadge";
 import StatusDot from "@/components/ui/StatusDot";
-import { countdown, STATUS_LABEL } from "@/lib/format";
+import { countdown, statusLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
+import { accentTint, themeAccent } from "@/lib/theme";
 
 interface FolderCardProps {
   folder: TaskFolder;
@@ -21,9 +23,11 @@ interface FolderCardProps {
 }
 
 export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
-  const cd = countdown(folder.deadline);
+  const { locale, text: t } = usePreferences();
+  const cd = countdown(folder.deadline, locale);
   const doneTodos = folder.todos.filter((t) => t.done).length;
   const totalTodos = folder.todos.length;
+  const coverColor = themeAccent(folder.coverColor);
 
   return (
     <motion.div
@@ -34,14 +38,14 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
       <Link
         to={`/folders/${folder.id}`}
         className="group relative block panel h-full overflow-hidden transition-all duration-200 hover:border-phosphor-400/50 hover:shadow-glow-phosphor"
-        style={{ borderColor: `${folder.coverColor}28` }}
+        style={{ borderColor: accentTint(folder.coverColor, 0.16) }}
       >
         {/* 顶部色带 */}
         <div
           className="h-[3px] w-full"
           style={{
-            background: `linear-gradient(90deg, ${folder.coverColor}, transparent)`,
-            boxShadow: `0 0 12px ${folder.coverColor}`,
+            background: `linear-gradient(90deg, ${coverColor}, transparent)`,
+            boxShadow: `0 0 12px ${coverColor}`,
           }}
         />
 
@@ -52,7 +56,7 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
               <PriorityBadge priority={folder.priority} />
               <span className="chip border-ink-faint/30 text-ink-faint">
                 <StatusDot status={folder.status} />
-                {STATUS_LABEL[folder.status]}
+                {statusLabel(folder.status, locale)}
               </span>
             </div>
             {folder.status === "paused" && (
@@ -72,7 +76,7 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
           <div className="flex items-end justify-between gap-2 mb-3">
             <div>
               <p className="text-[9px] uppercase tracking-wider text-ink-faint mb-0.5 font-display">
-                截止
+                {t("截止", "Deadline")}
               </p>
               <span
                 className={cn(
@@ -89,11 +93,11 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
             </div>
             <div className="text-right">
               <p className="text-[9px] uppercase tracking-wider text-ink-faint mb-0.5 font-display">
-                进度
+                {t("进度", "Progress")}
               </p>
               <span
                 className="data-mono font-bold text-lg leading-none"
-                style={{ color: folder.coverColor, textShadow: `0 0 10px ${folder.coverColor}55` }}
+                style={{ color: coverColor, textShadow: `0 0 10px color-mix(in srgb, ${coverColor} 33%, transparent)` }}
               >
                 {folder.progress}%
               </span>
@@ -106,8 +110,8 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
               className="h-full transition-all duration-700"
               style={{
                 width: `${folder.progress}%`,
-                background: folder.coverColor,
-                boxShadow: `0 0 8px ${folder.coverColor}`,
+                background: coverColor,
+                boxShadow: `0 0 8px ${coverColor}`,
               }}
             />
           </div>

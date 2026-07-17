@@ -7,31 +7,33 @@ import CommandPalette from "./CommandPalette";
 import NotificationPanel from "./NotificationPanel";
 import { useMissionStore } from "@/store/useMissionStore";
 import { useLocation } from "react-router-dom";
-
-const TITLES: Record<string, { title: string; breadcrumb: string[] }> = {
-  "/": { title: "指挥中心", breadcrumb: ["SECTOR", "DASHBOARD"] },
-  "/folders": { title: "任务舱库", breadcrumb: ["SECTOR", "FOLDERS"] },
-  "/integrations": { title: "接口舱", breadcrumb: ["SECTOR", "INTEGRATIONS"] },
-  "/workflow": { title: "工作流编排", breadcrumb: ["SECTOR", "WORKFLOW"] },
-  "/agents": { title: "Agent 控制台", breadcrumb: ["SECTOR", "AGENTS"] },
-};
+import { usePreferences } from "@/i18n";
 
 export default function AppShell() {
   const copilotOpen = useMissionStore((s) => s.copilotOpen);
   const setCopilotOpen = useMissionStore((s) => s.setCopilotOpen);
   const location = useLocation();
+  const { text: t } = usePreferences();
+  const titles: Record<string, { title: string; breadcrumb: string[] }> = {
+    "/": { title: t("指挥中心", "Command center"), breadcrumb: ["SECTOR", "DASHBOARD"] },
+    "/folders": { title: t("任务舱库", "Mission folders"), breadcrumb: ["SECTOR", "FOLDERS"] },
+    "/integrations": { title: t("接口舱", "Integrations"), breadcrumb: ["SECTOR", "INTEGRATIONS"] },
+    "/workflow": { title: t("工作流编排", "Workflow builder"), breadcrumb: ["SECTOR", "WORKFLOW"] },
+    "/agents": { title: t("Agent 控制台", "Agent console"), breadcrumb: ["SECTOR", "AGENTS"] },
+    "/settings": { title: t("设置", "Settings"), breadcrumb: ["SYSTEM", "SETTINGS"] },
+  };
 
   // 匹配路由标题（含动态路由）
-  const key = Object.keys(TITLES).find((k) =>
+  const key = Object.keys(titles).find((k) =>
     k === "/" ? location.pathname === "/" : location.pathname.startsWith(k)
   );
-  const meta = TITLES[key ?? "/"];
+  const meta = titles[key ?? "/"];
 
   // 任务舱详情特殊面包屑
   let title = meta.title;
   let breadcrumb = meta.breadcrumb;
   if (location.pathname.startsWith("/folders/")) {
-    title = "任务舱详情";
+    title = t("任务舱详情", "Mission folder");
     breadcrumb = ["FOLDERS", "INTERIOR"];
   }
 

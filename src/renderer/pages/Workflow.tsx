@@ -13,8 +13,10 @@ import {
 import { useMissionStore } from "@/store/useMissionStore";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 export default function WorkflowPage() {
+  const { locale, text: t } = usePreferences();
   const workflows = useMissionStore((s) => s.workflows);
   const toggle = useMissionStore((s) => s.toggleWorkflow);
 
@@ -30,17 +32,20 @@ export default function WorkflowPage() {
             /// AUTOMATION GRID
           </p>
           <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            工作流编排 ·{" "}
+            {t("工作流编排", "Workflow builder")} ·{" "}
             <span className="text-phosphor-400 text-glow-phosphor">{enabledCount}</span>
             <span className="text-ink-faint text-lg">/{workflows.length}</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
-            {enabledCount} 条规则运行中 · 累计执行 {totalRuns} 次 · 跨舱跨接口联动
+            {t(
+              `${enabledCount} 条规则运行中 · 累计执行 ${totalRuns} 次 · 跨舱跨接口联动`,
+              `${enabledCount} rules running · ${totalRuns} total runs · folders and integrations connected`,
+            )}
           </p>
         </div>
         <button className="btn-phosphor">
           <Plus className="w-3 h-3" strokeWidth={2} />
-          新建规则
+          {t("新建规则", "New rule")}
         </button>
       </div>
 
@@ -103,7 +108,7 @@ export default function WorkflowPage() {
               <FlowNode
                 kind="trigger"
                 icon={Zap}
-                label="触发器"
+                label={t("触发器", "Trigger")}
                 value={`${w.trigger.source} · ${w.trigger.condition}`}
               />
 
@@ -112,7 +117,7 @@ export default function WorkflowPage() {
                 <FlowNode
                   kind="condition"
                   icon={Filter}
-                  label="条件"
+                  label={t("条件", "Condition")}
                   value={w.conditions
                     .map((c) => `${c.field} ${c.op} "${c.value}"`)
                     .join("  AND  ")}
@@ -125,7 +130,7 @@ export default function WorkflowPage() {
                   key={i}
                   kind="action"
                   icon={GitBranch}
-                  label={`动作 ${i + 1}`}
+                  label={t(`动作 ${i + 1}`, `Action ${i + 1}`)}
                   value={`${a.type} → ${a.label}`}
                 />
               ))}
@@ -147,7 +152,7 @@ export default function WorkflowPage() {
                 )}
               </span>
               <span className="text-ink-faint">
-                最近执行 {w.lastRun ? relativeTime(w.lastRun) : "—"}
+                {t("最近执行", "Last run")} {w.lastRun ? relativeTime(w.lastRun, locale) : "—"}
               </span>
             </div>
           </motion.div>
@@ -160,7 +165,7 @@ export default function WorkflowPage() {
           <div className="flex items-center gap-2">
             <Radio className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
             <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-              编排画布 · BETA
+              {t("编排画布", "Workflow canvas")} · BETA
             </h3>
           </div>
           <span className="text-[9px] data-mono text-ink-faint">DRAG NODES TO COMPOSE</span>
@@ -170,27 +175,27 @@ export default function WorkflowPage() {
           <div className="absolute left-8 top-8 px-3 py-2 border border-phosphor-400/50 bg-phosphor-400/10">
             <div className="flex items-center gap-2 text-[10px] font-display uppercase tracking-wider text-phosphor-400">
               <Zap className="w-3 h-3" strokeWidth={1.5} />
-              触发器 · 邮件
+              {t("触发器 · 邮件", "Trigger · Email")}
             </div>
           </div>
           <ArrowRight className="absolute left-[140px] top-[26px] w-4 h-4 text-phosphor-400/50" strokeWidth={1.5} />
           <div className="absolute left-[180px] top-8 px-3 py-2 border border-amber-500/50 bg-amber-500/10">
             <div className="flex items-center gap-2 text-[10px] font-display uppercase tracking-wider text-amber-400">
               <Filter className="w-3 h-3" strokeWidth={1.5} />
-              条件 · 优先级
+              {t("条件 · 优先级", "Condition · Priority")}
             </div>
           </div>
           <ArrowRight className="absolute left-[300px] top-[26px] w-4 h-4 text-phosphor-400/50" strokeWidth={1.5} />
           <div className="absolute left-[340px] top-8 px-3 py-2 border border-violet/50 bg-violet/10">
             <div className="flex items-center gap-2 text-[10px] font-display uppercase tracking-wider text-violet">
               <GitBranch className="w-3 h-3" strokeWidth={1.5} />
-              动作 · 建舱
+              {t("动作 · 建舱", "Action · Create folder")}
             </div>
           </div>
           <div className="absolute left-[460px] top-8 px-3 py-2 border border-jade/50 bg-jade/10">
             <div className="flex items-center gap-2 text-[10px] font-display uppercase tracking-wider text-jade">
               <GitBranch className="w-3 h-3" strokeWidth={1.5} />
-              动作 · 归集
+              {t("动作 · 归集", "Action · Collect")}
             </div>
           </div>
           {/* 扫描线 */}
@@ -213,9 +218,9 @@ function FlowNode({
   value: string;
 }) {
   const meta = {
-    trigger: { color: "#FFB547", bg: "bg-amber-500/8", border: "border-amber-500/30" },
-    condition: { color: "#9D8CFF", bg: "bg-violet/8", border: "border-violet/30" },
-    action: { color: "#7FD1B9", bg: "bg-jade/8", border: "border-jade/30" },
+    trigger: { color: "rgb(var(--amber-500))", bg: "bg-amber-500/8", border: "border-amber-500/30" },
+    condition: { color: "rgb(var(--violet))", bg: "bg-violet/8", border: "border-violet/30" },
+    action: { color: "rgb(var(--jade))", bg: "bg-jade/8", border: "border-jade/30" },
   }[kind];
 
   return (

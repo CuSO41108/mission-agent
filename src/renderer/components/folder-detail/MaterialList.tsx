@@ -13,21 +13,15 @@ import {
 import type { Material, MaterialType } from "@/types";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 const TYPE_META: Record<MaterialType, { icon: typeof FileText; color: string; label: string }> = {
-  doc: { icon: FileText, color: "#00E5D4", label: "DOC" },
-  link: { icon: LinkIcon, color: "#9D8CFF", label: "LINK" },
-  note: { icon: StickyNote, color: "#FFB547", label: "NOTE" },
-  image: { icon: ImageIcon, color: "#7FD1B9", label: "IMG" },
+  doc: { icon: FileText, color: "rgb(var(--phosphor-400))", label: "DOC" },
+  link: { icon: LinkIcon, color: "rgb(var(--violet))", label: "LINK" },
+  note: { icon: StickyNote, color: "rgb(var(--amber-500))", label: "NOTE" },
+  image: { icon: ImageIcon, color: "rgb(var(--jade))", label: "IMG" },
   file: { icon: Paperclip, color: "#8B98A5", label: "FILE" },
 };
-
-const TABS: { key: MaterialType | "auto"; label: string }[] = [
-  { key: "auto", label: "自动识别" },
-  { key: "file", label: "本地文件" },
-  { key: "link", label: "链接" },
-  { key: "note", label: "笔记" },
-];
 
 interface MaterialListProps {
   materials: Material[];
@@ -45,6 +39,7 @@ function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
 }
 
 export default function MaterialList({ materials, onAdd }: MaterialListProps) {
+  const { text: t } = usePreferences();
   const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<MaterialType | "auto">("auto");
   const [input, setInput] = useState("");
@@ -75,8 +70,14 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
     tab === "link"
       ? "https://example.com/report.pdf"
       : tab === "note"
-        ? "在此输入笔记内容…"
-        : "D:/Docs/report.pdf 或拖拽文件路径";
+        ? t("在此输入笔记内容…", "Write your note here…")
+        : t("D:/Docs/report.pdf 或拖拽文件路径", "D:/Docs/report.pdf or drop a file path");
+  const tabs: { key: MaterialType | "auto"; label: string }[] = [
+    { key: "auto", label: t("自动识别", "Auto detect") },
+    { key: "file", label: t("本地文件", "Local file") },
+    { key: "link", label: t("链接", "Link") },
+    { key: "note", label: t("笔记", "Note") },
+  ];
 
   return (
     <div className="flex flex-col h-full">
@@ -84,7 +85,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
         <div className="flex items-center gap-2">
           <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
           <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-            材料库
+            {t("材料库", "Materials")}
           </h3>
         </div>
         <span className="text-[10px] data-mono text-ink-faint">
@@ -103,8 +104,8 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
               <div
                 className="w-7 h-7 shrink-0 flex items-center justify-center border"
                 style={{
-                  borderColor: `${meta.color}40`,
-                  backgroundColor: `${meta.color}10`,
+                  borderColor: `color-mix(in srgb, ${meta.color} 25%, transparent)`,
+                  backgroundColor: `color-mix(in srgb, ${meta.color} 6%, transparent)`,
                 }}
               >
                 <Icon className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: meta.color }} />
@@ -138,7 +139,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
           className="w-full mt-2 px-3 py-2 text-[11px] text-ink-faint hover:text-phosphor-400 text-left border border-dashed border-white/5 hover:border-phosphor-400/30 transition-all flex items-center gap-2"
         >
           <Plus className="w-3 h-3" strokeWidth={1.5} />
-          添加材料 / 拖拽至此
+          {t("添加材料 / 拖拽至此", "Add material / drop here")}
         </button>
       </div>
 
@@ -162,7 +163,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
               {/* 头部 */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-phosphor-400/15">
                 <h3 className="font-display text-[13px] uppercase tracking-[0.15em] text-ink">
-                  添加材料
+                  {t("添加材料", "Add material")}
                 </h3>
                 <button
                   onClick={() => setModalOpen(false)}
@@ -174,18 +175,18 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
 
               {/* 类型切换 */}
               <div className="px-4 py-3 flex items-center gap-1 border-b border-phosphor-400/10">
-                {TABS.map((t) => (
+                {tabs.map((tabOption) => (
                   <button
-                    key={t.key}
-                    onClick={() => setTab(t.key)}
+                    key={tabOption.key}
+                    onClick={() => setTab(tabOption.key)}
                     className={cn(
                       "px-2.5 py-1 text-[11px] border transition-colors",
-                      tab === t.key
+                      tab === tabOption.key
                         ? "bg-phosphor-400/12 border-phosphor-400/50 text-phosphor-100"
                         : "border-white/5 text-ink-muted hover:text-ink hover:border-white/15"
                     )}
                   >
-                    {t.label}
+                    {tabOption.label}
                   </button>
                 ))}
               </div>
@@ -194,7 +195,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
               <div className="p-4 space-y-3">
                 <div>
                   <label className="block text-[10px] data-mono uppercase tracking-wider text-ink-faint mb-1.5">
-                    {tab === "note" ? "笔记内容" : tab === "link" ? "URL" : "文件路径"}
+                    {tab === "note" ? t("笔记内容", "Note content") : tab === "link" ? "URL" : t("文件路径", "File path")}
                   </label>
                   {tab === "note" ? (
                     <textarea
@@ -216,23 +217,23 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                   )}
                   <p className="text-[9px] data-mono text-ink-faint mt-1.5">
                     {tab === "auto"
-                      ? "💡 系统将根据输入内容自动识别类型（URL/路径/笔记）"
+                      ? t("💡 系统将根据输入内容自动识别类型（URL/路径/笔记）", "💡 The type is detected from the URL, path, or note content")
                       : tab === "file"
-                        ? "📁 Electron 接入后将支持原生文件选择器"
+                        ? t("📁 Electron 接入后将支持原生文件选择器", "📁 A native file picker will be available after Electron integration")
                         : tab === "link"
-                          ? "🔗 链接将自动抓取标题（待接入）"
-                          : "📝 笔记将存储在数据库中"}
+                          ? t("🔗 链接将自动抓取标题（待接入）", "🔗 Link titles will be fetched automatically (coming soon)")
+                          : t("📝 笔记将存储在数据库中", "📝 Notes are stored in the database")}
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-[10px] data-mono uppercase tracking-wider text-ink-faint mb-1.5">
-                    显示名称（可选）
+                    {t("显示名称（可选）", "Display name (optional)")}
                   </label>
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="留空则使用文件名 / URL"
+                    placeholder={t("留空则使用文件名 / URL", "Leave empty to use the filename / URL")}
                     className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors"
                   />
                 </div>
@@ -244,7 +245,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                   onClick={() => setModalOpen(false)}
                   className="px-3 py-1.5 text-[11px] text-ink-muted hover:text-ink border border-white/10 hover:border-white/25 transition-colors"
                 >
-                  取消
+                  {t("取消", "Cancel")}
                 </button>
                 <button
                   onClick={handleSubmit}
@@ -257,7 +258,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                   )}
                 >
                   <Check className="w-2.5 h-2.5" strokeWidth={2} />
-                  添加
+                  {t("添加", "Add")}
                 </button>
               </div>
             </motion.div>

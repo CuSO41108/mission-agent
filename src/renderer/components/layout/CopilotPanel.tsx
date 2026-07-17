@@ -24,13 +24,7 @@ import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CopilotMessage, CopilotReference } from "@/types";
-
-const QUICK_CMDS = [
-  { icon: Activity, label: "今日进度", text: "今日整体进度如何？" },
-  { icon: Zap, label: "催办紧急", text: "催办今日截止的紧急任务" },
-  { icon: ListChecks, label: "生成待办", text: "为新品发布舱生成待办清单" },
-  { icon: Plus, label: "新建舱体", text: "新建一个舱体：下周客户演示" },
-];
+import { usePreferences } from "@/i18n";
 
 const REF_ICON = {
   folder: Folder,
@@ -123,6 +117,7 @@ function ActionButton({
   done?: boolean;
   onClick: () => void;
 }) {
+  const { text: t } = usePreferences();
   return (
     <button
       onClick={onClick}
@@ -140,12 +135,13 @@ function ActionButton({
       ) : (
         <Zap className="w-2.5 h-2.5" strokeWidth={1.5} />
       )}
-      {done ? "已执行" : label}
+      {done ? t("已执行", "Executed") : label}
     </button>
   );
 }
 
 function MessageBubble({ m }: { m: CopilotMessage }) {
+  const { text: t } = usePreferences();
   const navigate = useNavigate();
   const runCopilotAction = useMissionStore((s) => s.runCopilotAction);
 
@@ -195,7 +191,7 @@ function MessageBubble({ m }: { m: CopilotMessage }) {
           {m.content || (m.streaming && (
             <span className="inline-flex items-center gap-1.5 text-phosphor-400/70">
               <Loader2 className="w-2.5 h-2.5 animate-spin" strokeWidth={1.5} />
-              <span className="text-[10px] data-mono">正在生成…</span>
+              <span className="text-[10px] data-mono">{t("正在生成…", "Generating…")}</span>
             </span>
           ))}
           {m.streaming && m.content && (
@@ -253,11 +249,18 @@ function MessageBubble({ m }: { m: CopilotMessage }) {
 }
 
 export default function CopilotPanel() {
+  const { text: t } = usePreferences();
   const messages = useMissionStore((s) => s.copilotMessages);
   const streaming = useMissionStore((s) => s.copilotStreaming);
   const send = useMissionStore((s) => s.sendCopilot);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const quickCmds = [
+    { icon: Activity, label: t("今日进度", "Today’s progress"), text: t("今日整体进度如何？", "How is overall progress today?") },
+    { icon: Zap, label: t("催办紧急", "Chase urgent work"), text: t("催办今日截止的紧急任务", "Follow up on urgent tasks due today") },
+    { icon: ListChecks, label: t("生成待办", "Generate todos"), text: t("为新品发布舱生成待办清单", "Generate a todo list for the product launch folder") },
+    { icon: Plus, label: t("新建舱体", "New folder"), text: t("新建一个舱体：下周客户演示", "Create a folder: client demo next week") },
+  ];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -283,7 +286,7 @@ export default function CopilotPanel() {
           </div>
           <div>
             <h3 className="font-display text-[12px] uppercase tracking-[0.18em] text-ink leading-none">
-              AI 副驾
+              {t("AI 副驾", "AI copilot")}
             </h3>
             <p className="text-[9px] data-mono text-phosphor-400/70 mt-1 leading-none flex items-center gap-1">
               <span className={cn("w-1 h-1", streaming ? "bg-amber-400 animate-pulse-dot" : "bg-jade animate-pulse-dot")} />
@@ -294,9 +297,9 @@ export default function CopilotPanel() {
         <div className="flex items-center gap-2">
           <button
             className="text-[10px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors border border-phosphor-400/15 hover:border-phosphor-400/40 px-2 py-1"
-            title="清空上下文"
+            title={t("清空上下文", "Clear context")}
           >
-            清空
+            {t("清空", "Clear")}
           </button>
           <Sparkles className="w-3.5 h-3.5 text-phosphor-400/60" strokeWidth={1.5} />
         </div>
@@ -311,7 +314,7 @@ export default function CopilotPanel() {
 
       {/* 快捷指令 */}
       <div className="px-3 py-2 border-t border-phosphor-400/10 flex flex-wrap gap-1.5">
-        {QUICK_CMDS.map((c) => (
+        {quickCmds.map((c) => (
           <button
             key={c.label}
             onClick={() => handleSend(c.text)}
@@ -337,7 +340,7 @@ export default function CopilotPanel() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             disabled={streaming}
-            placeholder={streaming ? "Agent 思考中…" : "下达指令…"}
+            placeholder={streaming ? t("Agent 思考中…", "Agent is thinking…") : t("下达指令…", "Give an instruction…")}
             className={cn(
               "w-full pl-3 pr-10 py-2.5 bg-obsidian-850/80 border text-[12px] text-ink placeholder:text-ink-faint focus:outline-none transition-colors",
               streaming

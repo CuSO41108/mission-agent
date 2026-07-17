@@ -1,5 +1,6 @@
-import { PRIORITY_LABEL, PRIORITY_COLOR } from "@/lib/format";
+import { priorityLabel, PRIORITY_COLOR } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePreferences } from "@/i18n";
 
 interface PriorityBadgeProps {
   priority: string;
@@ -7,21 +8,22 @@ interface PriorityBadgeProps {
 }
 
 export default function PriorityBadge({ priority, className }: PriorityBadgeProps) {
-  const color = PRIORITY_COLOR[priority] ?? "#00E5D4";
+  const { locale } = usePreferences();
+  const color = PRIORITY_COLOR[priority] ?? "rgb(var(--phosphor-400))";
   return (
     <span
       className={cn("chip border", className)}
       style={{
         color,
-        borderColor: `${color}55`,
-        backgroundColor: `${color}10`,
+        borderColor: `color-mix(in srgb, ${color} 33%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${color} 6%, transparent)`,
       }}
     >
       <span
         className="w-1 h-1 rounded-full"
         style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
       />
-      {PRIORITY_LABEL[priority] ?? priority}
+      {priorityLabel(priority, locale)}
     </span>
   );
 }

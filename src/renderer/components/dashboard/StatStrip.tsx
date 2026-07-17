@@ -1,5 +1,6 @@
 import { Inbox, CheckCircle2, Bot, Zap } from "lucide-react";
 import type { TaskFolder, AgentActivity } from "@/types";
+import { usePreferences } from "@/i18n";
 
 interface StatStripProps {
   folders: TaskFolder[];
@@ -7,6 +8,7 @@ interface StatStripProps {
 }
 
 export default function StatStrip({ folders, activities }: StatStripProps) {
+  const { text: t } = usePreferences();
   const active = folders.filter((f) => f.status === "active").length;
   const done = folders.filter((f) => f.status === "done").length;
   const agentActive = folders.filter((f) => f.agentConfig.enabled).length;
@@ -14,31 +16,31 @@ export default function StatStrip({ folders, activities }: StatStripProps) {
 
   const stats = [
     {
-      label: "活跃舱体",
+      label: t("活跃舱体", "Active folders"),
       value: active,
       icon: Inbox,
-      color: "#00E5D4",
+      color: "rgb(var(--phosphor-400))",
       suffix: "ACTIVE",
     },
     {
-      label: "已完成",
+      label: t("已完成", "Completed"),
       value: done,
       icon: CheckCircle2,
-      color: "#7FD1B9",
+      color: "rgb(var(--jade))",
       suffix: "DONE",
     },
     {
-      label: "Agent 在线",
+      label: t("Agent 在线", "Agents online"),
       value: agentActive,
       icon: Bot,
-      color: "#9D8CFF",
+      color: "rgb(var(--violet))",
       suffix: "AGENTS",
     },
     {
-      label: "今日事件",
+      label: t("今日事件", "Today's events"),
       value: eventsToday,
       icon: Zap,
-      color: "#FFB547",
+      color: "rgb(var(--amber-500))",
       suffix: "EVT/24H",
     },
   ];
@@ -66,7 +68,7 @@ export default function StatStrip({ folders, activities }: StatStripProps) {
           <div className="flex items-baseline gap-1.5">
             <span
               className="font-display font-bold text-2xl data-mono leading-none"
-              style={{ color: s.color, textShadow: `0 0 12px ${s.color}66` }}
+              style={{ color: s.color, textShadow: `0 0 12px color-mix(in srgb, ${s.color} 40%, transparent)` }}
             >
               {String(s.value).padStart(2, "0")}
             </span>

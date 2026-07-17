@@ -3,23 +3,20 @@ import { Link } from "react-router-dom";
 import { Plus, Search, LayoutGrid, List, Filter } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import FolderCard from "@/components/folders/FolderCard";
-import { PRIORITY_LABEL, countdown, STATUS_LABEL } from "@/lib/format";
+import { priorityLabel, countdown, statusLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
+import { usePreferences } from "@/i18n";
+import { themeAccent } from "@/lib/theme";
 
 type StatusFilter = "all" | "active" | "paused" | "done";
 type ViewMode = "grid" | "list";
 
-const STATUS_TABS: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "active", label: "进行中" },
-  { key: "paused", label: "暂停" },
-  { key: "done", label: "已完成" },
-];
-
 function FolderRow({ folder }: { folder: TaskFolder }) {
-  const cd = countdown(folder.deadline);
+  const { locale } = usePreferences();
+  const cd = countdown(folder.deadline, locale);
   const doneTodos = folder.todos.filter((t) => t.done).length;
+  const coverColor = themeAccent(folder.coverColor);
   return (
     <Link
       to={`/folders/${folder.id}`}
@@ -27,11 +24,11 @@ function FolderRow({ folder }: { folder: TaskFolder }) {
     >
       <div
         className="w-6 h-6 border-l-2 flex items-center justify-center"
-        style={{ borderLeftColor: folder.coverColor }}
+        style={{ borderLeftColor: coverColor }}
       >
         <span
           className="w-1.5 h-1.5"
-          style={{ background: folder.coverColor, boxShadow: `0 0 6px ${folder.coverColor}` }}
+          style={{ background: coverColor, boxShadow: `0 0 6px ${coverColor}` }}
         />
       </div>
       <div className="min-w-0">
@@ -43,7 +40,7 @@ function FolderRow({ folder }: { folder: TaskFolder }) {
         </p>
       </div>
       <span className="text-[10px] data-mono text-ink-muted">
-        {STATUS_LABEL[folder.status]}
+        {statusLabel(folder.status, locale)}
       </span>
       <span
         className={cn(
@@ -61,7 +58,7 @@ function FolderRow({ folder }: { folder: TaskFolder }) {
         <div className="flex-1 h-[2px] bg-white/5 overflow-hidden">
           <div
             className="h-full"
-            style={{ width: `${folder.progress}%`, background: folder.coverColor }}
+            style={{ width: `${folder.progress}%`, background: coverColor }}
           />
         </div>
         <span className="text-[10px] data-mono text-ink-muted w-8 text-right">
@@ -84,11 +81,18 @@ function FolderRow({ folder }: { folder: TaskFolder }) {
 }
 
 export default function Folders() {
+  const { locale, text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [priority, setPriority] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("grid");
+  const statusTabs: { key: StatusFilter; label: string }[] = [
+    { key: "all", label: t("全部", "All") },
+    { key: "active", label: t("进行中", "Active") },
+    { key: "paused", label: t("暂停", "Paused") },
+    { key: "done", label: t("已完成", "Completed") },
+  ];
 
   const filtered = useMemo(() => {
     return folders.filter((f) => {
@@ -109,7 +113,7 @@ export default function Folders() {
             /// FLEET REGISTRY
           </p>
           <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            任务舱库 ·{" "}
+            {t("任务舱库", "Mission folders")} ·{" "}
             <span className="text-phosphor-400 text-glow-phosphor">{filtered.length}</span>
           </h1>
         </div>
@@ -124,7 +128,7 @@ export default function Folders() {
                   ? "bg-phosphor-400/12 text-phosphor-100"
                   : "text-ink-muted hover:text-ink"
               )}
-              title="网格视图"
+              title={t("网格视图", "Grid view")}
             >
               <LayoutGrid className="w-3 h-3" strokeWidth={1.5} />
             </button>
@@ -136,14 +140,14 @@ export default function Folders() {
                   ? "bg-phosphor-400/12 text-phosphor-100"
                   : "text-ink-muted hover:text-ink"
               )}
-              title="列表视图"
+              title={t("列表视图", "List view")}
             >
               <List className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </div>
           <button className="btn-phosphor">
             <Plus className="w-3 h-3" strokeWidth={2} />
-            新建舱体
+            {t("新建舱体", "New folder")}
           </button>
         </div>
       </div>
@@ -151,12 +155,12 @@ export default function Folders() {
       {/* 命令栏：一句话建舱 */}
       <div className="panel p-3 flex items-center gap-3">
         <span className="text-[10px] data-mono text-phosphor-400 shrink-0">
-          &gt; AI 建舱_
+          &gt; {t("AI 建舱", "AI FOLDER")}_
         </span>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="一句话描述任务，AI 自动生成舱体结构（例如：下周客户演示，准备方案与 Demo）"
+          placeholder={t("一句话描述任务，AI 自动生成舱体结构（例如：下周客户演示，准备方案与 Demo）", "Describe a task and AI will generate a folder structure (e.g. client demo next week, prepare deck and demo).")}
           className="flex-1 bg-transparent text-[12px] text-ink placeholder:text-ink-faint focus:outline-none"
         />
         <kbd className="text-[9px] data-mono text-ink-faint border border-phosphor-400/20 px-1.5 py-0.5">
@@ -167,19 +171,19 @@ export default function Folders() {
       {/* 筛选条 */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-1">
-          {STATUS_TABS.map((t) => (
+          {statusTabs.map((tab) => (
             <button
-              key={t.key}
-              onClick={() => setStatus(t.key)}
+              key={tab.key}
+              onClick={() => setStatus(tab.key)}
               className={cn(
                 "px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider border transition-all",
                 "font-display",
-                status === t.key
+                status === tab.key
                   ? "border-phosphor-400/50 bg-phosphor-400/10 text-phosphor-100"
                   : "border-white/5 text-ink-muted hover:text-ink hover:border-white/15"
               )}
             >
-              {t.label}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -191,10 +195,10 @@ export default function Folders() {
             onChange={(e) => setPriority(e.target.value)}
             className="bg-obsidian-850 border border-phosphor-400/15 text-[11px] text-ink px-2 py-1.5 focus:outline-none focus:border-phosphor-400/40 data-mono"
           >
-            <option value="all">全部优先级</option>
-            {Object.entries(PRIORITY_LABEL).map(([k, v]) => (
+            <option value="all">{t("全部优先级", "All priorities")}</option>
+            {["critical", "high", "medium", "low"].map((k) => (
               <option key={k} value={k}>
-                {v}
+                {priorityLabel(k, locale)}
               </option>
             ))}
           </select>
@@ -203,7 +207,7 @@ export default function Folders() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索舱体"
+              placeholder={t("搜索舱体", "Search folders")}
               className="pl-7 pr-3 py-1.5 bg-obsidian-850 border border-phosphor-400/15 text-[11px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/40 w-40"
             />
           </div>
@@ -214,11 +218,11 @@ export default function Folders() {
       {view === "list" && filtered.length > 0 && (
         <div className="grid grid-cols-[2.2rem_1fr_7rem_5rem_5rem_5rem_2rem] gap-3 px-3 py-1.5 text-[9px] data-mono uppercase tracking-wider text-ink-faint border-b border-phosphor-400/15">
           <span></span>
-          <span>舱体</span>
-          <span>状态</span>
-          <span>截止</span>
-          <span>进度</span>
-          <span>待办</span>
+          <span>{t("舱体", "Folder")}</span>
+          <span>{t("状态", "Status")}</span>
+          <span>{t("截止", "Deadline")}</span>
+          <span>{t("进度", "Progress")}</span>
+          <span>{t("待办", "Todos")}</span>
           <span>AGENT</span>
         </div>
       )}
@@ -229,8 +233,8 @@ export default function Folders() {
           <div className="w-12 h-12 border border-phosphor-400/30 flex items-center justify-center mb-3">
             <Plus className="w-5 h-5 text-phosphor-400" strokeWidth={1.5} />
           </div>
-          <p className="text-[13px] text-ink mb-1">未找到匹配的舱体</p>
-          <p className="text-[11px] text-ink-faint">尝试调整筛选条件或新建一个舱体</p>
+          <p className="text-[13px] text-ink mb-1">{t("未找到匹配的舱体", "No matching folders")}</p>
+          <p className="text-[11px] text-ink-faint">{t("尝试调整筛选条件或新建一个舱体", "Try adjusting the filters or create a new folder")}</p>
         </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
