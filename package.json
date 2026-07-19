@@ -21,6 +21,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "esbuild tests/agentContext.test.ts --bundle --platform=node --format=esm --outfile=out/test/agentContext.test.mjs && node --test tests/schedulerPolicy.test.ts out/test/agentContext.test.mjs",
+    "test:integration": "esbuild tests/localCrud.integration.test.ts --bundle --platform=node --format=esm --outfile=out/test/localCrud.integration.test.mjs && node --test out/test/localCrud.integration.test.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "electron-vite preview",
     "lint": "eslint .",
