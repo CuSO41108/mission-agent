@@ -2,7 +2,7 @@
 
 import { getDb } from "../db/client";
 import type { Material, MaterialType } from "../../renderer/types";
-import { toNumberOrNull, type DbRow } from "./base";
+import type { DbRow } from "./base";
 
 export function mapMaterial(row: DbRow): Material {
   return {
@@ -38,15 +38,18 @@ export const MaterialRepository = {
       material.name,
       material.content,
       "ref",
-      null,
+      material.type === "link" || material.type === "note" ? null : material.content,
       null,
       material.sourceIntegration ?? null,
       material.addedAt,
     );
   },
 
-  delete(id: string): void {
+  delete(folderId: string, id: string): boolean {
     const db = getDb();
-    db.prepare("DELETE FROM materials WHERE id = ?;").run(id);
+    const result = db
+      .prepare("DELETE FROM materials WHERE id = ? AND folder_id = ?;")
+      .run(id, folderId);
+    return Number(result.changes) === 1;
   },
 };

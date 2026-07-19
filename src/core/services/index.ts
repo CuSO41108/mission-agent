@@ -8,10 +8,15 @@ export { getAllWorkflows, getWorkflowById } from "./workflowService";
 
 // Phase 5：写操作
 export {
+  createFolder,
+  createTodo,
+  deleteFolder,
   setFolderStatus,
   toggleTodo,
   addMaterial,
+  deleteMaterial,
   toggleAgent,
+  updateAgentConfig,
   toggleWorkflow,
   recordWorkflowRun,
 } from "./mutationService";

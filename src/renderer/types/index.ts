@@ -22,6 +22,14 @@ export interface Todo {
   source?: string;
 }
 
+export interface CreateTodoInput {
+  title: string;
+  dueDate: number | null;
+  assignee: Assignee;
+  parentId?: string | null;
+  source?: string;
+}
+
 export interface Material {
   id: string;
   folderId: string;
@@ -42,6 +50,11 @@ export interface AgentConfig {
     create_subtask: boolean;
   };
   lastAction: number | null;
+}
+
+export interface UpdateAgentConfigInput {
+  strategy?: AgentStrategy;
+  permissions?: Partial<AgentConfig["permissions"]>;
 }
 
 export interface TimelineEntry {
@@ -68,6 +81,14 @@ export interface TaskFolder {
   timeline: TimelineEntry[];
   createdAt: number;
   sourceIntegration?: string;
+}
+
+export interface CreateFolderInput {
+  name: string;
+  category: string;
+  priority: Priority;
+  deadline: number | null;
+  agentEnabled?: boolean;
 }
 
 export type IntegrationType =

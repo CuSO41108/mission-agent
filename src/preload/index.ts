@@ -14,6 +14,9 @@ import type {
   IntegrationAdapter,
   WorkflowRule,
   Material,
+  CreateFolderInput,
+  CreateTodoInput,
+  UpdateAgentConfigInput,
   FolderStatus,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
@@ -41,6 +44,10 @@ const api = {
   // ============ 数据读取（Phase 3） ============
   getFolders: () => ipcRenderer.invoke("folder:list") as Promise<TaskFolder[]>,
   getFolder: (id: string) => ipcRenderer.invoke("folder:get", id) as Promise<TaskFolder | null>,
+  createFolder: (input: CreateFolderInput) =>
+    ipcRenderer.invoke("folder:create", input) as Promise<TaskFolder>,
+  deleteFolder: (folderId: string) =>
+    ipcRenderer.invoke("folder:delete", folderId) as Promise<boolean>,
   getIntegrations: () => ipcRenderer.invoke("integration:list") as Promise<IntegrationAdapter[]>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
 
@@ -49,16 +56,28 @@ const api = {
   setFolderStatus: (folderId: string, status: FolderStatus) =>
     ipcRenderer.invoke("folder:updateStatus", folderId, status) as Promise<TaskFolder | null>,
   // todo 切换完成状态
+  createTodo: (folderId: string, input: CreateTodoInput) =>
+    ipcRenderer.invoke("todo:create", folderId, input) as Promise<TaskFolder>,
   toggleTodo: (folderId: string, todoId: string, done: boolean) =>
-    ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<boolean>,
+    ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<TaskFolder>,
   // 添加材料
   addMaterial: (
     folderId: string,
     material: Omit<Material, "id" | "folderId" | "addedAt">,
   ) => ipcRenderer.invoke("material:add", folderId, material) as Promise<Material>,
+  deleteMaterial: (folderId: string, materialId: string) =>
+    ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
+  pickMaterialFile: () =>
+    ipcRenderer.invoke("file:pickMaterial") as Promise<{ path: string; name: string } | null>,
+  openMaterial: (folderId: string, materialId: string) =>
+    ipcRenderer.invoke("material:open", folderId, materialId) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   // Agent 开关
   toggleAgent: (folderId: string, enabled: boolean) =>
     ipcRenderer.invoke("agent:toggle", folderId, enabled) as Promise<boolean>,
+  updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) =>
+    ipcRenderer.invoke("agent:updateConfig", folderId, input) as Promise<TaskFolder>,
   // Workflow 开关
   toggleWorkflow: (workflowId: string, enabled: boolean) =>
     ipcRenderer.invoke("workflow:toggle", workflowId, enabled) as Promise<boolean>,
@@ -76,6 +95,18 @@ const api = {
       | { ok: true; summary: string }
       | { ok: false; error: string }
     >,
+  getSchedulerStatus: () =>
+    ipcRenderer.invoke("agent:schedulerStatus") as Promise<{
+      scheduled: boolean;
+      running: boolean;
+      state: "idle" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled";
+      intervalMin: number;
+      activeRunId: string | null;
+      activeRunStartedAt: number | null;
+      lastRunFinishedAt: number | null;
+      lastError: string | null;
+      nextRunAt: number | null;
+    }>,
 
   // ============ Agent 事件订阅（主进程主动推送） ============
   /**

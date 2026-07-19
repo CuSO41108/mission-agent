@@ -5,7 +5,12 @@
 import { FolderRepository } from "../repositories/folderRepository";
 import { AgentConfigRepository } from "../repositories/agentConfigRepository";
 import { TimelineRepository } from "../repositories/timelineRepository";
-import { runAgentOnce, type AgentResult } from "../agent";
+import {
+  runAgentOnce,
+  type AgentResult,
+  type AgentRunOptions,
+} from "../agent";
+import { getManualRunDenial, isHeartbeatEligible } from "./agentRunPolicy";
 
 /**
  * 单次心跳的汇总结果
@@ -44,18 +49,19 @@ export async function tick(deepseekConfig: {
   apiKey: string;
   baseUrl: string;
   model: string;
-}): Promise<TickResult> {
+}, options: AgentRunOptions = {}): Promise<TickResult> {
   const start = Date.now();
-  const folders = FolderRepository.list();
+  const folders = FolderRepository.list().filter((folder) => folder.status === "active");
   const results: AgentResult[] = [];
 
   for (const folder of folders) {
+    if (options.signal?.aborted) break;
     const agentCfg = AgentConfigRepository.findByFolder(folder.id);
-    if (!agentCfg || !agentCfg.enabled) {
+    if (!isHeartbeatEligible(folder, agentCfg)) {
       continue;
     }
     try {
-      const result = await runAgentOnce(folder.id, deepseekConfig);
+      const result = await runAgentOnce(folder.id, deepseekConfig, options);
       results.push(result);
     } catch (err) {
       // 单个舱体出错不应中断整个心跳
@@ -90,8 +96,23 @@ export async function tick(deepseekConfig: {
 export async function runFolderAgent(
   folderId: string,
   deepseekConfig: { apiKey: string; baseUrl: string; model: string },
+  options: AgentRunOptions = {},
 ): Promise<AgentResult> {
-  return runAgentOnce(folderId, deepseekConfig);
+  const folder = FolderRepository.findById(folderId);
+  const agentConfig = folder ? AgentConfigRepository.findByFolder(folderId) : null;
+  const denial = getManualRunDenial(folder, agentConfig);
+  if (denial) {
+    return {
+      folderId,
+      folderName: folder?.name ?? "(未知)",
+      summary: denial.message,
+      action: "manual_run_denied",
+      ok: false,
+      error: denial.message,
+      errorCode: denial.code,
+    };
+  }
+  return runAgentOnce(folderId, deepseekConfig, options);
 }
 
 // 导出 TimelineRepository 供 main 使用（写 timeline）

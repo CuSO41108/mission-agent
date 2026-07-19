@@ -3,7 +3,7 @@
 
 import { getDb } from "../db/client";
 import type { TaskFolder, Priority, FolderStatus } from "../../renderer/types";
-import { toBool, toNumberOrNull, type DbRow } from "./base";
+import { toNumberOrNull, type DbRow } from "./base";
 
 /**
  * 将 DB 行映射为 TaskFolder 业务对象（不含关联的 todos/materials/timeline）

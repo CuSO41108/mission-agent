@@ -3,7 +3,7 @@
  * 负责：窗口/托盘/全局快捷键/生命周期/IPC 注册
  * 业务逻辑全部下沉到 src/core/
  */
-import { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, shell, ipcMain } from "electron";
+import { app, BrowserWindow, Tray, Menu, dialog, globalShortcut, nativeImage, shell, ipcMain } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,13 +19,17 @@ import {
   getFolderDetail,
   getAllIntegrations,
   getAllWorkflows,
+  createFolder,
+  createTodo,
+  deleteFolder,
   setFolderStatus,
   toggleTodo,
   addMaterial,
+  deleteMaterial,
   toggleAgent,
+  updateAgentConfig,
   toggleWorkflow,
 } from "../core/services";
-import { runFolderAgent } from "../core/workflow";
 import {
   initConfigFile,
   loadConfig,
@@ -34,7 +38,13 @@ import {
   testDeepSeek,
   type AppConfig,
 } from "../core/config";
-import { startScheduler, stopScheduler, runTickOnce } from "./scheduler";
+import {
+  getSchedulerStatus,
+  runFolderOnce,
+  runTickOnce,
+  startScheduler,
+  stopScheduler,
+} from "./scheduler";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -125,7 +135,9 @@ function createTray(): void {
         label: "立即执行心跳",
         click: () => {
           if (mainWindow) {
-            void runTickOnce(getConfig(), mainWindow);
+            void runTickOnce(getConfig, mainWindow).catch((err) => {
+              console.error("[scheduler] 托盘手动心跳失败：", err);
+            });
           }
         },
       },
@@ -221,14 +233,9 @@ function updateConfig(partial: Partial<AppConfig>): AppConfig {
   ) {
     registerShortcut(partial.system.globalShortcut);
   }
-  // 同步运行时状态：心跳间隔/开关变了就重启 scheduler
+  // 同步运行时状态：开关变化时启动/停止固定的每小时调度器
   if (partial.agent && mainWindow) {
-    startScheduler(
-      merged.agent.heartbeatIntervalMin,
-      merged.agent.enabled,
-      merged,
-      mainWindow,
-    );
+    startScheduler(getConfig, mainWindow);
   }
 
   return merged;
@@ -244,6 +251,10 @@ function registerIpc(): void {
   // 任务舱
   ipcMain.handle("folder:list", () => getAllFoldersWithDetails());
   ipcMain.handle("folder:get", (_e: unknown, id: string) => getFolderDetail(id));
+  ipcMain.handle("folder:create", (_e, input: Parameters<typeof createFolder>[0]) =>
+    createFolder(input),
+  );
+  ipcMain.handle("folder:delete", (_e, folderId: string) => deleteFolder(folderId));
 
   // 接口适配器
   ipcMain.handle("integration:list", () => getAllIntegrations());
@@ -280,16 +291,46 @@ function registerIpc(): void {
   );
   // todo 切换完成状态
   ipcMain.handle(
+    "todo:create",
+    (_e, folderId: string, input: Parameters<typeof createTodo>[1]) =>
+      createTodo(folderId, input),
+  );
+  ipcMain.handle(
     "todo:toggle",
     (_e, folderId: string, todoId: string, done: boolean) => {
-      toggleTodo(folderId, todoId, done);
-      return true;
+      return toggleTodo(folderId, todoId, done);
     },
   );
   // 添加材料
   ipcMain.handle("material:add", (_e, folderId: string, material: unknown) =>
     addMaterial(folderId, material as Parameters<typeof addMaterial>[1]),
   );
+  ipcMain.handle("material:delete", (_e, folderId: string, materialId: string) =>
+    deleteMaterial(folderId, materialId),
+  );
+  ipcMain.handle("file:pickMaterial", async () => {
+    const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+      title: "选择要引用的材料文件",
+      properties: ["openFile"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    return { path: filePath, name: path.basename(filePath) };
+  });
+  ipcMain.handle("material:open", async (_e, folderId: string, materialId: string) => {
+    const material = getFolderDetail(folderId)?.materials.find((item) => item.id === materialId);
+    if (!material) return { ok: false, error: "材料不存在或不属于当前任务舱" };
+    const target = material.content.trim();
+    if (/^https?:\/\//i.test(target)) {
+      await shell.openExternal(target);
+      return { ok: true };
+    }
+    if (!path.isAbsolute(target)) {
+      return { ok: false, error: "该材料没有可打开的本地文件或链接" };
+    }
+    const error = await shell.openPath(target);
+    return error ? { ok: false, error } : { ok: true };
+  });
   // Agent 开关
   ipcMain.handle(
     "agent:toggle",
@@ -297,6 +338,11 @@ function registerIpc(): void {
       toggleAgent(folderId, enabled);
       return true;
     },
+  );
+  ipcMain.handle(
+    "agent:updateConfig",
+    (_e, folderId: string, input: Parameters<typeof updateAgentConfig>[1]) =>
+      updateAgentConfig(folderId, input),
   );
   // Workflow 开关
   ipcMain.handle(
@@ -311,7 +357,8 @@ function registerIpc(): void {
   // 手动触发一次心跳
   ipcMain.handle("agent:triggerHeartbeat", async () => {
     try {
-      const result = await runTickOnce(getConfig(), mainWindow!);
+      if (!mainWindow) throw new Error("主窗口尚未初始化");
+      const result = await runTickOnce(getConfig, mainWindow);
       return {
         ok: true,
         scanned: result.scanned,
@@ -329,7 +376,8 @@ function registerIpc(): void {
   // 手动触发单个舱体的 Agent
   ipcMain.handle("agent:runOnce", async (_e, folderId: string) => {
     try {
-      const result = await runFolderAgent(folderId, getConfig().deepseek);
+      if (!mainWindow) throw new Error("主窗口尚未初始化");
+      const result = await runFolderOnce(getConfig, mainWindow, folderId);
       return { ok: result.ok, summary: result.summary, error: result.error };
     } catch (err) {
       return {
@@ -338,6 +386,7 @@ function registerIpc(): void {
       };
     }
   });
+  ipcMain.handle("agent:schedulerStatus", () => getSchedulerStatus());
 
   // 兼容旧 settings:get（让现有 store 不破，后续逐步迁移到 config:get）
   ipcMain.handle("settings:get", (_event: unknown, key: string) => {
@@ -347,7 +396,7 @@ function registerIpc(): void {
     if (key === "heartbeatInterval") return cfg.agent.heartbeatIntervalMin;
     return null;
   });
-  ipcMain.handle("settings:set", (_event: unknown, _key: string, _value: unknown) => {
+  ipcMain.handle("settings:set", () => {
     return true;
   });
 
@@ -389,13 +438,7 @@ app.whenReady().then(() => {
   registerShortcut(getConfig().system.globalShortcut || DEFAULT_SHORTCUT);
   // 启动心跳调度器（按配置的间隔与开关）
   if (mainWindow) {
-    const cfg = getConfig();
-    startScheduler(
-      cfg.agent.heartbeatIntervalMin,
-      cfg.agent.enabled,
-      cfg,
-      mainWindow,
-    );
+    startScheduler(getConfig, mainWindow);
   }
 });
 

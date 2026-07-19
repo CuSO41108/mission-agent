@@ -33,6 +33,12 @@ function mapTodoWithParent(row: DbRow): TodoWithParent {
 }
 
 export const TodoRepository = {
+  findById(id: string): TodoWithParent | null {
+    const db = getDb();
+    const row = db.prepare("SELECT * FROM todos WHERE id = ?;").get(id) as DbRow | undefined;
+    return row ? mapTodoWithParent(row) : null;
+  },
+
   listByFolder(folderId: string): Todo[] {
     const db = getDb();
     const rows = db
@@ -72,9 +78,12 @@ export const TodoRepository = {
     );
   },
 
-  toggleDone(id: string, done: boolean): void {
+  toggleDone(folderId: string, id: string, done: boolean): boolean {
     const db = getDb();
-    db.prepare("UPDATE todos SET done = ? WHERE id = ?;").run(done ? 1 : 0, id);
+    const result = db
+      .prepare("UPDATE todos SET done = ? WHERE id = ? AND folder_id = ?;")
+      .run(done ? 1 : 0, id, folderId);
+    return Number(result.changes) === 1;
   },
 
   delete(id: string): void {

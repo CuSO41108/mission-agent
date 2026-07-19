@@ -2,7 +2,7 @@
 
 import { getDb } from "../db/client";
 import type { IntegrationAdapter, IntegrationType, IntegrationStatus } from "../../renderer/types";
-import { toBool, toNumberOrNull, type DbRow } from "./base";
+import { toNumberOrNull, type DbRow } from "./base";
 
 export function mapIntegration(row: DbRow): IntegrationAdapter {
   return {

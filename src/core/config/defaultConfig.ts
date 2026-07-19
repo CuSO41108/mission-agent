@@ -75,6 +75,19 @@ export interface AppConfig {
   integrations: IntegrationsConfig;
 }
 
+/** 心跳默认每 60 分钟运行，允许用户在 5 分钟到 24 小时之间调整。 */
+export const DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 60;
+export const MIN_HEARTBEAT_INTERVAL_MINUTES = 5;
+export const MAX_HEARTBEAT_INTERVAL_MINUTES = 24 * 60;
+
+export function normalizeHeartbeatIntervalMin(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_HEARTBEAT_INTERVAL_MINUTES;
+  return Math.max(
+    MIN_HEARTBEAT_INTERVAL_MINUTES,
+    Math.min(MAX_HEARTBEAT_INTERVAL_MINUTES, Math.round(value)),
+  );
+}
+
 /**
  * 默认配置
  * 首次启动时写入 userData/config.yaml
@@ -86,7 +99,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: "deepseek-chat",
   },
   agent: {
-    heartbeatIntervalMin: 30,
+    heartbeatIntervalMin: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
     enabled: true,
   },
   system: {
@@ -127,7 +140,13 @@ export const DEFAULT_CONFIG: AppConfig = {
 export function mergeConfig(base: AppConfig, partial: Partial<AppConfig>): AppConfig {
   return {
     deepseek: { ...base.deepseek, ...partial.deepseek },
-    agent: { ...base.agent, ...partial.agent },
+    agent: {
+      ...base.agent,
+      ...partial.agent,
+      heartbeatIntervalMin: normalizeHeartbeatIntervalMin(
+        partial.agent?.heartbeatIntervalMin ?? base.agent.heartbeatIntervalMin,
+      ),
+    },
     system: { ...base.system, ...partial.system },
     storage: { ...base.storage, ...partial.storage },
     integrations: {

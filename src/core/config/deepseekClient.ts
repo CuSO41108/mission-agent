@@ -19,6 +19,14 @@ export interface ChatResult {
   };
 }
 
+export interface ChatOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  maxTokens?: number;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
 /**
  * 测试 DeepSeek API 连接
  * 发一个最小请求验证 key 是否有效
@@ -45,22 +53,52 @@ export async function testDeepSeek(config: DeepSeekConfig): Promise<ChatResult> 
 export async function chat(
   config: DeepSeekConfig,
   messages: ChatMessage[],
+  options: ChatOptions = {},
 ): Promise<ChatResult> {
   const url = `${config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages,
-      stream: false,
-      max_tokens: 1024,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  let timedOut = false;
+  const onExternalAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) {
+    controller.abort(options.signal.reason);
+  } else {
+    options.signal?.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error(`DeepSeek 请求超过 ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        stream: false,
+        max_tokens: options.maxTokens ?? 1024,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (timedOut) {
+      throw new Error(`DeepSeek 请求超时（${timeoutMs}ms）`);
+    }
+    if (options.signal?.aborted) {
+      throw new Error("DeepSeek 请求已取消");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onExternalAbort);
+  }
 
   if (!response.ok) {
     const errorBody = await response.text();

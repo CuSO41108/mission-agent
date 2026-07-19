@@ -2,58 +2,141 @@
 // 职责：node-cron 注册定时器 → 调 WorkflowService.tick → 推送事件给渲染层
 // 只在 main 进程内使用，依赖 electron 的 BrowserWindow
 
-import cron, { type ScheduledTask } from "node-cron";
 import type { BrowserWindow } from "electron";
-import { tick, type TickResult } from "../core/workflow";
+import {
+  runFolderAgent,
+  tick,
+  type TickResult,
+} from "../core/workflow";
+import type { AgentResult } from "../core/agent";
 import type { AppConfig } from "../core/config";
+import {
+  DEEPSEEK_REQUEST_TIMEOUT_MS,
+  HEARTBEAT_RUN_TIMEOUT_MS,
+  heartbeatDelayMs,
+  readHeartbeatConfig,
+} from "./schedulerPolicy";
 
-let scheduledTask: ScheduledTask | null = null;
-let currentInterval = 0;
+let scheduledTimer: ReturnType<typeof setTimeout> | null = null;
+let currentIntervalMin = 60;
+let nextRunAt: number | null = null;
 let isRunning = false;
+let activeRunController: AbortController | null = null;
+let runState: SchedulerRunState = "idle";
+let activeRunId: string | null = null;
+let activeRunStartedAt: number | null = null;
+let lastRunFinishedAt: number | null = null;
+let lastError: string | null = null;
+
+type ConfigProvider = () => AppConfig;
+export type SchedulerRunState =
+  | "idle"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "timed_out"
+  | "cancelled";
+
+export class SchedulerBusyError extends Error {
+  constructor() {
+    super("已有 Agent 任务正在运行，请稍后再试");
+    this.name = "SchedulerBusyError";
+  }
+}
+
+function beginRun(source: "scheduled" | "manual_all" | "manual_folder"): {
+  runId: string;
+  controller: AbortController;
+  timeout: ReturnType<typeof setTimeout>;
+  didTimeout: () => boolean;
+} {
+  if (isRunning) throw new SchedulerBusyError();
+
+  const runId = `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error("心跳整轮执行超时"));
+  }, HEARTBEAT_RUN_TIMEOUT_MS);
+
+  isRunning = true;
+  activeRunController = controller;
+  activeRunId = runId;
+  activeRunStartedAt = Date.now();
+  runState = "running";
+  lastError = null;
+  return { runId, controller, timeout, didTimeout: () => timedOut };
+}
+
+function finishRun(
+  timeout: ReturnType<typeof setTimeout>,
+  outcome: Exclude<SchedulerRunState, "idle" | "running">,
+  error?: string,
+): void {
+  clearTimeout(timeout);
+  runState = outcome;
+  lastError = error ?? null;
+  lastRunFinishedAt = Date.now();
+  isRunning = false;
+  activeRunController = null;
+  activeRunId = null;
+  activeRunStartedAt = null;
+}
 
 /**
  * 启动或重启心跳定时器
  *
- * @param intervalMin 间隔分钟（5-120）
- * @param enabled 全局开关
- * @param config DeepSeek 配置（传给 WorkflowService.tick）
+ * 按用户配置的分钟间隔递归调度。回调触发时再读取最新配置，避免闭包持有旧 key/model。
+ * @param getConfig 获取当前最新配置
  * @param win 用于推送事件的 BrowserWindow
  */
 export function startScheduler(
-  intervalMin: number,
-  enabled: boolean,
-  config: AppConfig,
+  getConfig: ConfigProvider,
   win: BrowserWindow,
 ): void {
-  // 先停掉旧的
   stopScheduler();
 
-  if (!enabled) {
+  if (!readHeartbeatConfig(getConfig).enabled) {
     console.log(`[scheduler] 心跳已关闭（agent.enabled=false）`);
     return;
   }
 
-  // 防御：间隔至少 5 分钟
-  const interval = Math.max(5, Math.min(120, intervalMin));
-  const cronExpr = `*/${interval} * * * *`;
+  scheduleNext(getConfig, win);
+}
 
-  scheduledTask = cron.schedule(cronExpr, () => {
-    void runTickOnce(config, win);
-  });
-  currentInterval = interval;
-  console.log(`[scheduler] 心跳已启动：每 ${interval} 分钟一次（cron: ${cronExpr}）`);
+function scheduleNext(getConfig: ConfigProvider, win: BrowserWindow): void {
+  const snapshot = readHeartbeatConfig(getConfig);
+  if (!snapshot.enabled) return;
+
+  currentIntervalMin = snapshot.intervalMin;
+  const delayMs = heartbeatDelayMs(snapshot.intervalMin);
+  nextRunAt = Date.now() + delayMs;
+  scheduledTimer = setTimeout(() => {
+    scheduledTimer = null;
+    nextRunAt = null;
+    void runTickOnce(getConfig, win, "scheduled")
+      .catch((err) => {
+        if (!(err instanceof SchedulerBusyError)) {
+          console.error("[scheduler] 定时心跳触发失败：", err);
+        }
+      })
+      .finally(() => scheduleNext(getConfig, win));
+  }, delayMs);
+  console.log(`[scheduler] 心跳已启动：每 ${snapshot.intervalMin} 分钟执行一次`);
 }
 
 /**
  * 停止心跳定时器
  */
 export function stopScheduler(): void {
-  if (scheduledTask) {
-    scheduledTask.stop();
-    scheduledTask = null;
+  if (scheduledTimer) {
+    clearTimeout(scheduledTimer);
+    scheduledTimer = null;
+    nextRunAt = null;
     console.log(`[scheduler] 心跳已停止`);
   }
-  currentInterval = 0;
+  activeRunController?.abort(new Error("调度器已停止"));
 }
 
 /**
@@ -61,36 +144,38 @@ export function stopScheduler(): void {
  * 用于：托盘"立即执行" / 设置页"立即触发" / IPC agent:triggerHeartbeat
  */
 export async function runTickOnce(
-  config: AppConfig,
+  getConfig: ConfigProvider,
   win: BrowserWindow,
+  source: "scheduled" | "manual_all" = "manual_all",
 ): Promise<TickResult> {
-  // 防重入：上一次还没跑完就跳过
-  if (isRunning) {
-    console.log(`[scheduler] 上一次心跳未完成，跳过本次触发`);
-    return {
-      timestamp: Date.now(),
-      scanned: 0,
-      executed: 0,
-      succeeded: 0,
-      failed: 0,
-      results: [],
-      durationMs: 0,
-    };
-  }
-
-  isRunning = true;
-  console.log(`[scheduler] 开始心跳巡检...`);
+  const { runId, controller, timeout, didTimeout } = beginRun(source);
+  const config = readHeartbeatConfig(getConfig);
+  console.log(`[scheduler] 开始心跳巡检（${runId}）...`);
 
   // 推送开始事件
   if (!win.isDestroyed()) {
     win.webContents.send("agent:event", {
       type: "heartbeat_start",
+      runId,
+      source,
       timestamp: Date.now(),
     });
   }
 
   try {
-    const result = await tick(config.deepseek);
+    const result = await tick(config.deepseek, {
+      signal: controller.signal,
+      requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
+    });
+    const timedOut = didTimeout();
+    const cancelled = controller.signal.aborted && !timedOut;
+    const outcome: Exclude<SchedulerRunState, "idle" | "running"> = timedOut
+      ? "timed_out"
+      : cancelled
+        ? "cancelled"
+        : result.failed > 0
+          ? "failed"
+          : "succeeded";
     console.log(
       `[scheduler] 心跳完成：扫描 ${result.scanned}，执行 ${result.executed}，` +
         `成功 ${result.succeeded}，失败 ${result.failed}，耗时 ${result.durationMs}ms`,
@@ -100,6 +185,9 @@ export async function runTickOnce(
     if (!win.isDestroyed()) {
       win.webContents.send("agent:event", {
         type: "heartbeat_done",
+        runId,
+        source,
+        status: outcome,
         timestamp: result.timestamp,
         scanned: result.scanned,
         executed: result.executed,
@@ -122,6 +210,17 @@ export async function runTickOnce(
       }
     }
 
+    finishRun(
+      timeout,
+      outcome,
+      timedOut
+        ? "心跳整轮执行超时"
+        : cancelled
+          ? "心跳执行已取消"
+          : result.failed > 0
+            ? `${result.failed} 个任务舱执行失败`
+            : undefined,
+    );
     return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -129,13 +228,64 @@ export async function runTickOnce(
     if (!win.isDestroyed()) {
       win.webContents.send("agent:event", {
         type: "heartbeat_error",
+        runId,
+        source,
         error: errorMsg,
         timestamp: Date.now(),
       });
     }
+    finishRun(timeout, controller.signal.aborted ? "cancelled" : "failed", errorMsg);
     throw err;
-  } finally {
-    isRunning = false;
+  }
+}
+
+/** 手动执行单个任务舱，复用全局防重入、最新配置、状态与超时控制。 */
+export async function runFolderOnce(
+  getConfig: ConfigProvider,
+  win: BrowserWindow,
+  folderId: string,
+): Promise<AgentResult> {
+  const { runId, controller, timeout, didTimeout } = beginRun("manual_folder");
+  const config = readHeartbeatConfig(getConfig);
+  if (!win.isDestroyed()) {
+    win.webContents.send("agent:event", {
+      type: "agent_manual_start",
+      runId,
+      folderId,
+      timestamp: Date.now(),
+    });
+  }
+
+  try {
+    const result = await runFolderAgent(folderId, config.deepseek, {
+      signal: controller.signal,
+      requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
+    });
+    const timedOut = didTimeout() || result.errorCode === "DEEPSEEK_TIMEOUT";
+    const cancelled = controller.signal.aborted && !didTimeout();
+    const outcome = timedOut
+      ? "timed_out"
+      : cancelled
+        ? "cancelled"
+        : result.ok
+          ? "succeeded"
+          : "failed";
+    if (!win.isDestroyed()) {
+      win.webContents.send("agent:event", {
+        type: "agent_manual_done",
+        runId,
+        folderId,
+        status: outcome,
+        result,
+        timestamp: Date.now(),
+      });
+    }
+    finishRun(timeout, outcome, result.error);
+    return result;
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    finishRun(timeout, controller.signal.aborted ? "cancelled" : "failed", errorMsg);
+    throw err;
   }
 }
 
@@ -143,11 +293,25 @@ export async function runTickOnce(
  * 获取当前调度器状态
  */
 export function getSchedulerStatus(): {
+  scheduled: boolean;
   running: boolean;
+  state: SchedulerRunState;
   intervalMin: number;
+  activeRunId: string | null;
+  activeRunStartedAt: number | null;
+  lastRunFinishedAt: number | null;
+  lastError: string | null;
+  nextRunAt: number | null;
 } {
   return {
-    running: scheduledTask !== null,
-    intervalMin: currentInterval,
+    scheduled: scheduledTimer !== null,
+    running: isRunning,
+    state: runState,
+    intervalMin: currentIntervalMin,
+    activeRunId,
+    activeRunStartedAt,
+    lastRunFinishedAt,
+    lastError,
+    nextRunAt,
   };
 }

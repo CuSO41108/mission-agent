@@ -8,6 +8,9 @@ import type {
   Todo,
   Material,
   AgentNotification,
+  CreateFolderInput,
+  CreateTodoInput,
+  UpdateAgentConfigInput,
 } from "@/types";
 // Phase 3：folder/integration/workflow 改为从 SQLite 拉取
 // 以下 mock 仍保留：agentActivity / copilot / notification 留到后续 Phase 接入
@@ -34,8 +37,13 @@ interface MissionState {
   loadError: string | null;
 
   loadFromDb: () => Promise<void>;
-  toggleTodo: (folderId: string, todoId: string) => void;
+  createFolder: (input: CreateFolderInput) => Promise<TaskFolder>;
+  deleteFolder: (folderId: string) => Promise<boolean>;
+  createTodo: (folderId: string, input: CreateTodoInput) => Promise<TaskFolder>;
+  toggleTodo: (folderId: string, todoId: string) => Promise<void>;
   toggleAgent: (folderId: string) => void;
+  updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) => Promise<TaskFolder>;
+  runAgentOnce: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
   setFolderStatus: (folderId: string, status: TaskFolder["status"]) => void;
   toggleWorkflow: (id: string) => void;
   toggleIntegration: (id: string) => void;
@@ -43,7 +51,8 @@ interface MissionState {
   pushCopilot: (content: string) => void;
   setCopilotOpen: (open: boolean) => void;
   runCopilotAction: (messageId: string, actionId: string) => void;
-  addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => void;
+  addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => Promise<Material>;
+  deleteMaterial: (folderId: string, materialId: string) => Promise<boolean>;
   pushNotification: (n: Omit<AgentNotification, "id" | "timestamp" | "read">) => void;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
@@ -238,8 +247,29 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   // 设计：写 IPC 落库后，本地 store 乐观更新 + 拿返回值刷新
   // 失败时回滚（此处简化为 console.error，未来可加 toast）
 
-  toggleTodo: (folderId, todoId) => {
-    // 先算新状态用于乐观更新
+  createFolder: async (input) => {
+    const folder = await window.missionConsole.createFolder(input);
+    set((s) => ({ folders: [folder, ...s.folders] }));
+    return folder;
+  },
+
+  deleteFolder: async (folderId) => {
+    const deleted = await window.missionConsole.deleteFolder(folderId);
+    if (deleted) {
+      set((s) => ({ folders: s.folders.filter((folder) => folder.id !== folderId) }));
+    }
+    return deleted;
+  },
+
+  createTodo: async (folderId, input) => {
+    const folder = await window.missionConsole.createTodo(folderId, input);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? folder : item)),
+    }));
+    return folder;
+  },
+
+  toggleTodo: async (folderId, todoId) => {
     const folder = get().folders.find((f) => f.id === folderId);
     if (!folder) return;
     const findTodo = (todos: Todo[]): Todo | undefined => {
@@ -253,27 +283,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const target = findTodo(folder.todos);
     const newDone = target ? !target.done : false;
 
-    // 乐观更新本地
-    set((s) => ({
-      folders: s.folders.map((f) => {
-        if (f.id !== folderId) return f;
-        const flip = (todos: Todo[]): Todo[] =>
-          todos.map((t) => {
-            if (t.id === todoId) return { ...t, done: !t.done };
-            if (t.subtasks.length) return { ...t, subtasks: flip(t.subtasks) };
-            return t;
-          });
-        const todos = flip(f.todos);
-        const doneCount = todos.filter((t) => t.done).length;
-        const progress = Math.round((doneCount / Math.max(todos.length, 1)) * 100);
-        return { ...f, todos, progress };
-      }),
+    const updated = await window.missionConsole.toggleTodo(folderId, todoId, newDone);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
     }));
-
-    // 异步落库（失败只 log，不回滚——简化处理）
-    void window.missionConsole
-      .toggleTodo(folderId, todoId, newDone)
-      .catch((err) => console.error("[store] toggleTodo IPC 失败：", err));
   },
 
   toggleAgent: (folderId) => {
@@ -292,6 +305,25 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     void window.missionConsole
       .toggleAgent(folderId, newEnabled)
       .catch((err) => console.error("[store] toggleAgent IPC 失败：", err));
+  },
+
+  updateAgentConfig: async (folderId, input) => {
+    const folder = await window.missionConsole.updateAgentConfig(folderId, input);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? folder : item)),
+    }));
+    return folder;
+  },
+
+  runAgentOnce: async (folderId) => {
+    const result = await window.missionConsole.runAgentOnce(folderId);
+    const folder = await window.missionConsole.getFolder(folderId);
+    if (folder) {
+      set((state) => ({
+        folders: state.folders.map((item) => (item.id === folderId ? folder : item)),
+      }));
+    }
+    return result;
   },
 
   setFolderStatus: (folderId, status) => {
@@ -352,41 +384,35 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       ),
     })),
 
-  addMaterial: (folderId, m) => {
-    // 乐观加到本地
+  addMaterial: async (folderId, m) => {
+    const material = await window.missionConsole.addMaterial(folderId, m);
+    const refreshed = await window.missionConsole.getFolder(folderId);
     set((s) => ({
-      folders: s.folders.map((f) =>
-        f.id === folderId
-          ? {
-              ...f,
-              materials: [
-                {
-                  ...m,
-                  id: genId(),
-                  folderId,
-                  addedAt: Date.now(),
-                },
-                ...f.materials,
-              ],
-              timeline: [
-                {
-                  id: genId(),
-                  folderId,
-                  actor: "human" as const,
-                  action: `添加材料：${m.name}`,
-                  timestamp: Date.now(),
-                },
-                ...f.timeline,
-              ],
-            }
-          : f
+      folders: s.folders.map((folder) =>
+        folder.id === folderId
+          ? refreshed ?? { ...folder, materials: [material, ...folder.materials] }
+          : folder,
       ),
     }));
+    return material;
+  },
 
-    // 异步落库（成功后用真实 id 替换乐观 id；此处简化为只触发 IPC）
-    void window.missionConsole
-      .addMaterial(folderId, m)
-      .catch((err) => console.error("[store] addMaterial IPC 失败：", err));
+  deleteMaterial: async (folderId, materialId) => {
+    const deleted = await window.missionConsole.deleteMaterial(folderId, materialId);
+    if (deleted) {
+      const refreshed = await window.missionConsole.getFolder(folderId);
+      set((s) => ({
+        folders: s.folders.map((folder) =>
+          folder.id === folderId
+            ? refreshed ?? {
+                ...folder,
+                materials: folder.materials.filter((material) => material.id !== materialId),
+              }
+            : folder,
+        ),
+      }));
+    }
+    return deleted;
   },
 
   sendCopilot: (content) => {

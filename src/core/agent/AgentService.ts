@@ -4,11 +4,19 @@
 
 import { chat, type ChatMessage } from "../config/deepseekClient";
 import type { DeepSeekConfig } from "../config/defaultConfig";
-import { FolderRepository } from "../repositories/folderRepository";
-import { TodoRepository } from "../repositories/todoRepository";
-import { MaterialRepository } from "../repositories/materialRepository";
 import { AgentConfigRepository } from "../repositories/agentConfigRepository";
 import { TimelineRepository } from "../repositories/timelineRepository";
+import { getFolderDetail } from "../services/folderService";
+import { MaterialRepository } from "../repositories/materialRepository";
+import { TodoRepository } from "../repositories/todoRepository";
+import { FolderRepository } from "../repositories/folderRepository";
+import { getDb } from "../db/client";
+import path from "node:path";
+import {
+  prepareMaterialTask,
+  writeMarkdownArtifact,
+  type MaterialTaskContext,
+} from "./materialTask";
 import type { TaskFolder } from "../../renderer/types";
 
 /**
@@ -33,6 +41,15 @@ export interface AgentResult {
   ok: boolean;
   /** 错误信息（ok=false 时） */
   error?: string;
+  /** 可供 IPC/UI 判断的稳定错误码 */
+  errorCode?: string;
+  artifactPath?: string;
+  todoId?: string;
+}
+
+export interface AgentRunOptions {
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
 }
 
 /**
@@ -52,10 +69,37 @@ function buildSystemPrompt(): string {
   ].join("\n");
 }
 
+function buildTaskSystemPrompt(): string {
+  return [
+    "你是 Mission Console 的内容执行 Agent。",
+    "根据用户待办和所附文本材料，直接生成一篇可发布的中文博客 Markdown。",
+    "要求：结构清晰、忠于材料、补充必要的过渡与工程解释，不虚构材料中没有的事实。",
+    "返回完整 Markdown 正文，不要解释过程，不要使用包裹全文的代码块。",
+  ].join("\n");
+}
+
+function buildTaskUserMessage(folder: TaskFolder, task: MaterialTaskContext): string {
+  const images = task.imageReferences.length
+    ? task.imageReferences
+        .map(({ name, markdownTarget: target }) => `- ${name}：请在合适位置使用 ![描述](${target}) 嵌入`)
+        .join("\n")
+    : "（无图片材料）";
+  return [
+    `任务舱：${folder.name}`,
+    `待办：${task.todo.title}`,
+    "",
+    "图片引用：",
+    images,
+    "",
+    "文本材料：",
+    task.sourceText || "（没有可读取的文本材料）",
+  ].join("\n");
+}
+
 /**
  * 构造用户消息：把任务舱的当前状态序列化给 LLM
  */
-function buildUserMessage(folder: TaskFolder): string {
+export function buildUserMessage(folder: TaskFolder): string {
   const now = Date.now();
   const deadlineStr = folder.deadline
     ? `截止 ${new Date(folder.deadline).toLocaleString("zh-CN")}（剩余 ${Math.max(0, folder.deadline - now)} ms）`
@@ -106,8 +150,9 @@ function buildUserMessage(folder: TaskFolder): string {
 export async function runAgentOnce(
   folderId: string,
   config: DeepSeekConfig,
+  options: AgentRunOptions = {},
 ): Promise<AgentResult> {
-  const folder = FolderRepository.findById(folderId);
+  const folder = getFolderDetail(folderId);
   if (!folder) {
     return {
       folderId,
@@ -133,15 +178,114 @@ export async function runAgentOnce(
     };
   }
 
-  // 调 DeepSeek
-  const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt() },
-    { role: "user", content: buildUserMessage(folder) },
-  ];
+  const materialTask = prepareMaterialTask(folder);
+  if (materialTask && !folder.agentConfig.permissions.read) {
+    const error = "Agent 缺少读取权限，无法读取任务舱材料";
+    writeTimeline(folderId, "agent", error, { todoId: materialTask.todo.id });
+    return {
+      folderId,
+      folderName: folder.name,
+      summary: error,
+      action: "task_permission_denied",
+      ok: false,
+      error,
+      errorCode: "AGENT_READ_PERMISSION_REQUIRED",
+      todoId: materialTask.todo.id,
+    };
+  }
+  if (materialTask && !folder.agentConfig.permissions.write) {
+    const error = "Agent 缺少写入权限，无法生成 Markdown 产物";
+    writeTimeline(folderId, "agent", error, { todoId: materialTask.todo.id });
+    return {
+      folderId,
+      folderName: folder.name,
+      summary: error,
+      action: "task_permission_denied",
+      ok: false,
+      error,
+      errorCode: "AGENT_WRITE_PERMISSION_REQUIRED",
+      todoId: materialTask.todo.id,
+    };
+  }
+  if (materialTask && !materialTask.sourceText) {
+    const error = "没有找到可读取的 JSON、Markdown、TXT、CSV 或 YAML 文本材料";
+    writeTimeline(folderId, "agent", error, { todoId: materialTask.todo.id });
+    return {
+      folderId,
+      folderName: folder.name,
+      summary: error,
+      action: "task_material_unreadable",
+      ok: false,
+      error,
+      errorCode: "NO_READABLE_TEXT_MATERIAL",
+      todoId: materialTask.todo.id,
+    };
+  }
+
+  const messages: ChatMessage[] = materialTask
+    ? [
+        { role: "system", content: buildTaskSystemPrompt() },
+        { role: "user", content: buildTaskUserMessage(folder, materialTask) },
+      ]
+    : [
+        { role: "system", content: buildSystemPrompt() },
+        { role: "user", content: buildUserMessage(folder) },
+      ];
 
   try {
-    const result = await chat(config, messages);
+    const result = await chat(config, messages, {
+      signal: options.signal,
+      timeoutMs: options.requestTimeoutMs,
+      maxTokens: materialTask ? 4096 : 1024,
+    });
     const summary = result.content;
+
+    if (materialTask) {
+      const artifactPath = writeMarkdownArtifact(folder, materialTask, result.content);
+      const db = getDb();
+      db.exec("BEGIN;");
+      try {
+        MaterialRepository.insert({
+          id: `m-agent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          folderId,
+          type: "doc",
+          name: path.basename(artifactPath),
+          content: artifactPath,
+          addedAt: Date.now(),
+          sourceIntegration: "agent",
+        });
+        if (!TodoRepository.toggleDone(folderId, materialTask.todo.id, true)) {
+          throw new Error("Agent 待办不存在或不属于当前任务舱");
+        }
+        const todos = TodoRepository.listByFolder(folderId);
+        const doneCount = todos.filter((todo) => todo.done).length;
+        FolderRepository.updateProgress(
+          folderId,
+          Math.round((doneCount / Math.max(todos.length, 1)) * 100),
+        );
+        writeTimeline(folderId, "agent", `完成待办并生成：${path.basename(artifactPath)}`, {
+          todoId: materialTask.todo.id,
+          artifactPath,
+          model: result.model,
+          tokens: result.usage?.totalTokens,
+        });
+        updateLastAction(folderId);
+        db.exec("COMMIT;");
+      } catch (err) {
+        db.exec("ROLLBACK;");
+        throw err;
+      }
+      return {
+        folderId,
+        folderName: folder.name,
+        summary: `已生成 Markdown：${artifactPath}`,
+        action: "material_task_completed",
+        usage: result.usage,
+        ok: true,
+        artifactPath,
+        todoId: materialTask.todo.id,
+      };
+    }
 
     // 写 timeline + 更新 last_action
     writeTimeline(folderId, "agent", `心跳巡检：${summary.slice(0, 80)}`, {
@@ -164,15 +308,29 @@ export async function runAgentOnce(
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    writeTimeline(folderId, "agent", `心跳巡检失败：${errorMsg}`, { error: errorMsg });
+    const timedOut = errorMsg.includes("请求超时");
+    const cancelled = errorMsg.includes("请求已取消");
+    writeTimeline(
+      folderId,
+      "agent",
+      `${materialTask ? "任务执行" : "心跳巡检"}失败：${errorMsg}`,
+      { error: errorMsg, todoId: materialTask?.todo.id },
+    );
     updateLastAction(folderId);
     return {
       folderId,
       folderName: folder.name,
-      summary: `巡检失败：${errorMsg}`,
-      action: "heartbeat_error",
+      summary: `${materialTask ? "任务执行" : "巡检"}失败：${errorMsg}`,
+      action: timedOut
+        ? "heartbeat_timeout"
+        : cancelled
+          ? "heartbeat_cancelled"
+          : materialTask
+            ? "material_task_error"
+            : "heartbeat_error",
       ok: false,
       error: errorMsg,
+      errorCode: timedOut ? "DEEPSEEK_TIMEOUT" : cancelled ? "RUN_CANCELLED" : "DEEPSEEK_ERROR",
     };
   }
 }
