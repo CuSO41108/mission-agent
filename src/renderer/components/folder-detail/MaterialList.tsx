@@ -9,6 +9,9 @@ import {
   Plus,
   X,
   Check,
+  FolderOpen,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import type { Material, MaterialType } from "@/types";
 import { shortTime } from "@/lib/format";
@@ -24,8 +27,10 @@ const TYPE_META: Record<MaterialType, { icon: typeof FileText; color: string; la
 };
 
 interface MaterialListProps {
+  folderId: string;
   materials: Material[];
-  onAdd?: (m: Omit<Material, "id" | "addedAt">) => void;
+  onAdd?: (m: Omit<Material, "id" | "folderId" | "addedAt">) => Promise<unknown> | void;
+  onDelete?: (materialId: string) => Promise<unknown> | void;
 }
 
 function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
@@ -33,17 +38,20 @@ function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
   const trimmed = input.trim();
   if (/^https?:\/\//i.test(trimmed)) return "link";
   if (/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(trimmed)) return "image";
-  if (/\.(pdf|docx?|xlsx?|pptx?|md|txt)$/i.test(trimmed)) return "doc";
+  if (/\.(pdf|docx?|xlsx?|pptx?|md|txt|json|csv|ya?ml)$/i.test(trimmed)) return "doc";
   if (trimmed.includes("\n") || trimmed.length > 80) return "note";
   return "file";
 }
 
-export default function MaterialList({ materials, onAdd }: MaterialListProps) {
+export default function MaterialList({ folderId, materials, onAdd, onDelete }: MaterialListProps) {
   const { text: t } = usePreferences();
   const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<MaterialType | "auto">("auto");
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const reset = () => {
     setInput("");
@@ -51,19 +59,65 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
     setTab("auto");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const value = input.trim();
     if (!value) return;
-    const type = detectType(value, tab);
+    const type = detectType(value, tab === "file" ? "auto" : tab);
     const finalName = name.trim() || (type === "link" ? value : value.split(/[\\/]/).pop() || value);
-    onAdd?.({
-      folderId: "",
-      type,
-      name: finalName,
-      content: value,
-    });
-    reset();
-    setModalOpen(false);
+    try {
+      setError("");
+      await onAdd?.({ type, name: finalName, content: value });
+      reset();
+      setModalOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const pickFile = async () => {
+    setPicking(true);
+    setError("");
+    try {
+      const picked = await window.missionConsole.pickMaterialFile();
+      if (!picked) return;
+      setTab("file");
+      setInput(picked.path);
+      if (!name.trim()) setName(picked.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const removeMaterial = async (material: Material) => {
+    if (!onDelete) return;
+    const confirmed = window.confirm(
+      t(
+        `确定从材料库移除“${material.name}”吗？只删除应用内引用，不会删除磁盘上的源文件。`,
+        `Remove “${material.name}” from Materials? This removes only the app reference, not the source file on disk.`,
+      ),
+    );
+    if (!confirmed) return;
+    setDeletingId(material.id);
+    setError("");
+    try {
+      await onDelete(material.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const openMaterial = async (material: Material) => {
+    setError("");
+    try {
+      const result = await window.missionConsole.openMaterial(folderId, material.id);
+      if (!result.ok) setError(result.error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const placeholder =
@@ -99,6 +153,12 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
           return (
             <div
               key={m.id}
+              onClick={() => void openMaterial(m)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") void openMaterial(m);
+              }}
               className="group flex items-center gap-3 px-3 py-2 border border-white/5 hover:border-phosphor-400/30 hover:bg-phosphor-400/3 transition-all cursor-pointer"
             >
               <div
@@ -131,6 +191,21 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                   </span>
                 </div>
               </div>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void removeMaterial(m);
+                }}
+                disabled={deletingId === m.id}
+                title={t("删除材料引用", "Remove material reference")}
+                className="opacity-0 group-hover:opacity-100 w-7 h-7 shrink-0 flex items-center justify-center border border-coral/25 text-coral hover:bg-coral/10 transition-all disabled:opacity-40"
+              >
+                {deletingId === m.id ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3" />
+                )}
+              </button>
             </div>
           );
         })}
@@ -141,6 +216,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
           <Plus className="w-3 h-3" strokeWidth={1.5} />
           {t("添加材料 / 拖拽至此", "Add material / drop here")}
         </button>
+        {error && <p className="px-2 py-1 text-[10px] text-coral">{error}</p>}
       </div>
 
       {/* 添加材料弹窗 */}
@@ -207,19 +283,32 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                       className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors resize-none"
                     />
                   ) : (
-                    <input
-                      autoFocus
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      placeholder={placeholder}
-                      className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors data-mono"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        placeholder={placeholder}
+                        className="flex-1 min-w-0 px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors data-mono"
+                      />
+                      {(tab === "file" || tab === "auto") && (
+                        <button
+                          type="button"
+                          onClick={() => void pickFile()}
+                          disabled={picking}
+                          className="btn-ghost shrink-0"
+                        >
+                          {picking ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+                          {t("选择文件", "Choose file")}
+                        </button>
+                      )}
+                    </div>
                   )}
                   <p className="text-[9px] data-mono text-ink-faint mt-1.5">
                     {tab === "auto"
                       ? t("💡 系统将根据输入内容自动识别类型（URL/路径/笔记）", "💡 The type is detected from the URL, path, or note content")
                       : tab === "file"
-                        ? t("📁 Electron 接入后将支持原生文件选择器", "📁 A native file picker will be available after Electron integration")
+                        ? t("📁 选择文件后仅保存路径引用，不复制或移动源文件", "📁 The selected file is referenced by path; the source is not copied or moved")
                         : tab === "link"
                           ? t("🔗 链接将自动抓取标题（待接入）", "🔗 Link titles will be fetched automatically (coming soon)")
                           : t("📝 笔记将存储在数据库中", "📝 Notes are stored in the database")}
@@ -237,6 +326,11 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                     className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors"
                   />
                 </div>
+                {error && (
+                  <div className="px-3 py-2 border border-coral/30 bg-coral/5 text-[10px] text-coral">
+                    {error}
+                  </div>
+                )}
               </div>
 
               {/* 底部 */}
@@ -248,7 +342,7 @@ export default function MaterialList({ materials, onAdd }: MaterialListProps) {
                   {t("取消", "Cancel")}
                 </button>
                 <button
-                  onClick={handleSubmit}
+                  onClick={() => void handleSubmit()}
                   disabled={!input.trim()}
                   className={cn(
                     "px-3 py-1.5 text-[11px] border transition-all flex items-center gap-1.5",

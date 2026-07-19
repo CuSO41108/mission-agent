@@ -20,10 +20,6 @@ import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 import type {
   AppConfig,
-  DeepSeekConfig,
-  AgentConfig,
-  SystemConfig,
-  StorageConfig,
 } from "@core/config";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -39,6 +35,7 @@ export default function Settings() {
   // 用于 DeepSeek 测试时拿当前表单里的临时值（用户可能还没保存）
   const [draftApiKey, setDraftApiKey] = useState("");
   const [draftModel, setDraftModel] = useState("deepseek-chat");
+  const [draftHeartbeatInterval, setDraftHeartbeatInterval] = useState(60);
 
   // 加载配置
   useEffect(() => {
@@ -46,20 +43,32 @@ export default function Settings() {
       setConfigState(cfg);
       setDraftApiKey(cfg.deepseek.apiKey);
       setDraftModel(cfg.deepseek.model);
+      setDraftHeartbeatInterval(cfg.agent.heartbeatIntervalMin);
       setLoading(false);
     });
   }, []);
 
   // 保存局部配置
   async function savePartial(partial: Partial<AppConfig>) {
-    if (!config) return;
+    if (!config) return null;
     setSaving(true);
     try {
       const merged = await window.missionConsole.setConfig(partial);
       setConfigState(merged);
+      return merged;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveHeartbeatInterval() {
+    const merged = await savePartial({
+      agent: {
+        ...config!.agent,
+        heartbeatIntervalMin: draftHeartbeatInterval,
+      },
+    });
+    if (merged) setDraftHeartbeatInterval(merged.agent.heartbeatIntervalMin);
   }
 
   // 测试 DeepSeek 连接
@@ -293,20 +302,25 @@ export default function Settings() {
 
         {/* 3. 心跳调度 */}
         <Section icon={HeartPulse} title={t("心跳调度", "Heartbeat schedule")} desc={t("Agent 自动巡检间隔", "Automatic Agent check interval")} code="HB">
-          <Field label={t(`间隔：${config?.agent.heartbeatIntervalMin ?? 30} 分钟`, `Interval: ${config?.agent.heartbeatIntervalMin ?? 30} minutes`)}>
-            <input
-              type="range"
-              min={5}
-              max={120}
-              step={5}
-              value={config?.agent.heartbeatIntervalMin ?? 30}
-              onChange={(e) =>
-                savePartial({
-                  agent: { ...config!.agent, heartbeatIntervalMin: Number(e.target.value) },
-                })
-              }
-              className="w-full accent-phosphor-400"
-            />
+          <Field label={t("执行频率", "Frequency")}>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={5}
+                max={1440}
+                step={5}
+                value={draftHeartbeatInterval}
+                onChange={(e) => setDraftHeartbeatInterval(Number(e.target.value))}
+                className="input flex-1"
+              />
+              <span className="text-[11px] text-ink-muted">{t("分钟", "minutes")}</span>
+              <button onClick={saveHeartbeatInterval} className="btn-ghost">
+                {t("应用", "Apply")}
+              </button>
+            </div>
+            <p className="text-[10px] text-ink-faint mt-1.5">
+              {t("默认 60 分钟，可设置 5–1440 分钟；修改后从当前时间重新计时。", "Defaults to 60 minutes. Allowed range: 5–1440; changing it restarts the countdown.")}
+            </p>
           </Field>
           <Toggle
             label={t("心跳开关", "Heartbeat")}

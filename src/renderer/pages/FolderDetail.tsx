@@ -3,11 +3,12 @@ import {
   ArrowLeft,
   Calendar,
   Tag,
-  Plus,
   Archive,
   Pause,
   Play,
   CheckCircle2,
+  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import PriorityBadge from "@/components/ui/PriorityBadge";
@@ -28,6 +29,26 @@ export default function FolderDetail() {
   const folder = useMissionStore((s) => s.folders.find((f) => f.id === id));
   const setFolderStatus = useMissionStore((s) => s.setFolderStatus);
   const addMaterial = useMissionStore((s) => s.addMaterial);
+  const deleteMaterial = useMissionStore((s) => s.deleteMaterial);
+  const deleteFolder = useMissionStore((s) => s.deleteFolder);
+
+  const permanentlyDeleteFolder = async () => {
+    if (!folder) return;
+    const confirmed = window.confirm(
+      t(
+        `确定永久删除任务舱“${folder.name}”吗？待办、材料引用和时间线记录都会从本地数据库删除，但磁盘源文件不会被删除。此操作不可撤销。`,
+        `Permanently delete “${folder.name}”? Todos, material references, and timeline entries will be removed from the local database, but source files on disk will remain. This cannot be undone.`,
+      ),
+    );
+    if (!confirmed) return;
+    try {
+      const deleted = await deleteFolder(folder.id);
+      if (!deleted) throw new Error(t("任务舱删除失败", "Failed to delete folder"));
+      navigate("/folders");
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (!folder) {
     return (
@@ -127,11 +148,22 @@ export default function FolderDetail() {
 
             {/* 操作组 */}
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setFolderStatus(folder.id, folder.status === "paused" ? "active" : "paused")}
-                className="btn-ghost"
-              >
-                {folder.status === "paused" ? (
+              {folder.status === "archived" ? (
+                <>
+                  <button onClick={() => setFolderStatus(folder.id, "active")} className="btn-ghost">
+                    <RotateCcw className="w-3 h-3" /> {t("恢复", "Restore")}
+                  </button>
+                  <button onClick={() => void permanentlyDeleteFolder()} className="btn-coral">
+                    <Trash2 className="w-3 h-3" /> {t("永久删除", "Delete permanently")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setFolderStatus(folder.id, folder.status === "paused" ? "active" : "paused")}
+                    className="btn-ghost"
+                  >
+                    {folder.status === "paused" ? (
                   <>
                     <Play className="w-3 h-3" strokeWidth={1.5} /> {t("继续", "Resume")}
                   </>
@@ -139,23 +171,22 @@ export default function FolderDetail() {
                   <>
                     <Pause className="w-3 h-3" strokeWidth={1.5} /> {t("暂停", "Pause")}
                   </>
-                )}
-              </button>
-              <button
-                onClick={() => setFolderStatus(folder.id, "done")}
-                className="btn-ghost"
-              >
-                <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} /> {t("完成", "Complete")}
-              </button>
-              <button
-                onClick={() => setFolderStatus(folder.id, "archived")}
-                className="btn-coral"
-              >
-                <Archive className="w-3 h-3" strokeWidth={1.5} /> {t("归档", "Archive")}
-              </button>
-              <button className="btn-phosphor">
-                <Plus className="w-3 h-3" strokeWidth={2} /> {t("添加", "Add")}
-              </button>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setFolderStatus(folder.id, "done")}
+                    className="btn-ghost"
+                  >
+                    <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} /> {t("完成", "Complete")}
+                  </button>
+                  <button
+                    onClick={() => setFolderStatus(folder.id, "archived")}
+                    className="btn-coral"
+                  >
+                    <Archive className="w-3 h-3" strokeWidth={1.5} /> {t("归档", "Archive")}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -173,8 +204,10 @@ export default function FolderDetail() {
           <div className="col-span-12 lg:col-span-5 flex flex-col gap-4 h-full min-h-0">
             <div className="panel flex-1 min-h-0 overflow-hidden flex flex-col">
               <MaterialList
+                folderId={folder.id}
                 materials={folder.materials}
                 onAdd={(m) => addMaterial(folder.id, m)}
+                onDelete={(materialId) => deleteMaterial(folder.id, materialId)}
               />
             </div>
             <div className="panel shrink-0 h-[200px] overflow-hidden flex flex-col">

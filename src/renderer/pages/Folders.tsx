@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Search, LayoutGrid, List, Filter } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import FolderCard from "@/components/folders/FolderCard";
@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
 import type { TaskFolder } from "@/types";
 import { usePreferences } from "@/i18n";
 import { themeAccent } from "@/lib/theme";
+import CreateFolderModal from "@/components/folders/CreateFolderModal";
 
-type StatusFilter = "all" | "active" | "paused" | "done";
+type StatusFilter = "all" | "active" | "paused" | "done" | "archived";
 type ViewMode = "grid" | "list";
 
 function FolderRow({ folder }: { folder: TaskFolder }) {
@@ -83,6 +84,9 @@ function FolderRow({ folder }: { folder: TaskFolder }) {
 export default function Folders() {
   const { locale, text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [priority, setPriority] = useState<string>("all");
   const [query, setQuery] = useState("");
@@ -92,10 +96,21 @@ export default function Folders() {
     { key: "active", label: t("进行中", "Active") },
     { key: "paused", label: t("暂停", "Paused") },
     { key: "done", label: t("已完成", "Completed") },
+    { key: "archived", label: t("已归档", "Archived") },
   ];
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1") setCreateOpen(true);
+  }, [searchParams]);
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    if (searchParams.has("create")) setSearchParams({}, { replace: true });
+  };
 
   const filtered = useMemo(() => {
     return folders.filter((f) => {
+      if (status === "all" && f.status === "archived") return false;
       if (status !== "all" && f.status !== status) return false;
       if (priority !== "all" && f.priority !== priority) return false;
       if (query && !f.name.toLowerCase().includes(query.toLowerCase()) && !f.category.includes(query))
@@ -145,27 +160,11 @@ export default function Folders() {
               <List className="w-3 h-3" strokeWidth={1.5} />
             </button>
           </div>
-          <button className="btn-phosphor">
+          <button onClick={() => setCreateOpen(true)} className="btn-phosphor">
             <Plus className="w-3 h-3" strokeWidth={2} />
             {t("新建舱体", "New folder")}
           </button>
         </div>
-      </div>
-
-      {/* 命令栏：一句话建舱 */}
-      <div className="panel p-3 flex items-center gap-3">
-        <span className="text-[10px] data-mono text-phosphor-400 shrink-0">
-          &gt; {t("AI 建舱", "AI FOLDER")}_
-        </span>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("一句话描述任务，AI 自动生成舱体结构（例如：下周客户演示，准备方案与 Demo）", "Describe a task and AI will generate a folder structure (e.g. client demo next week, prepare deck and demo).")}
-          className="flex-1 bg-transparent text-[12px] text-ink placeholder:text-ink-faint focus:outline-none"
-        />
-        <kbd className="text-[9px] data-mono text-ink-faint border border-phosphor-400/20 px-1.5 py-0.5">
-          ENTER
-        </kbd>
       </div>
 
       {/* 筛选条 */}
@@ -251,6 +250,11 @@ export default function Folders() {
           ))}
         </div>
       )}
+      <CreateFolderModal
+        open={createOpen}
+        onClose={closeCreate}
+        onCreated={(folder) => navigate(`/folders/${folder.id}`)}
+      />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { Bot, Zap, Bell, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { AgentActivity } from "@/types";
 import { relativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 
 interface AgentFeedProps {

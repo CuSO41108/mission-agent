@@ -12,7 +12,6 @@ import {
   X,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
-import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 

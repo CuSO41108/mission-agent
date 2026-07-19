@@ -4,8 +4,6 @@ import {
   Bot,
   Paperclip,
   CheckCircle2,
-  Circle,
-  Clock,
   ArrowUpRight,
   Pause,
 } from "lucide-react";

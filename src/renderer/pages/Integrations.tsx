@@ -3,8 +3,6 @@ import {
   Calendar,
   MessageSquare,
   Send,
-  Slack,
-  Hash,
   Plug,
   Plus,
   Activity,
@@ -31,13 +29,6 @@ const TYPE_COLOR: Record<IntegrationType, string> = {
   social: "rgb(var(--violet))",
   chat: "rgb(var(--jade))",
   custom: "rgb(var(--ink-muted))",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  connected: "已连接",
-  disconnected: "未连接",
-  error: "异常",
-  beta: "测试中",
 };
 
 export default function Integrations() {

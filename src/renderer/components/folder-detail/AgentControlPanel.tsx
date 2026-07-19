@@ -8,7 +8,10 @@ import {
   PencilLine,
   Bell,
   ListPlus,
+  Loader2,
+  PlayCircle,
 } from "lucide-react";
+import { useState } from "react";
 import type { AgentConfig } from "@/types";
 import { useMissionStore } from "@/store/useMissionStore";
 import { relativeTime } from "@/lib/format";
@@ -23,6 +26,24 @@ interface AgentControlPanelProps {
 export default function AgentControlPanel({ folderId, config }: AgentControlPanelProps) {
   const { locale, text: t } = usePreferences();
   const toggleAgent = useMissionStore((s) => s.toggleAgent);
+  const updateAgentConfig = useMissionStore((s) => s.updateAgentConfig);
+  const runAgentOnce = useMissionStore((s) => s.runAgentOnce);
+  const [running, setRunning] = useState(false);
+  const [runMessage, setRunMessage] = useState("");
+
+  const runNow = async () => {
+    if (running || !config.enabled) return;
+    setRunning(true);
+    setRunMessage("");
+    try {
+      const result = await runAgentOnce(folderId);
+      setRunMessage(result.ok ? result.summary ?? t("执行完成", "Completed") : result.error ?? t("执行失败", "Failed"));
+    } catch (err) {
+      setRunMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  };
   const strategies: { key: AgentConfig["strategy"]; label: string; desc: string }[] = [
     { key: "follow_up", label: t("跟进催办", "Follow up"), desc: t("在截止前主动提醒并推进", "Remind and move work forward before deadlines.") },
     { key: "material_collect", label: t("材料归集", "Collect materials"), desc: t("从接口拉取相关材料入库", "Collect related material from integrations.") },
@@ -108,6 +129,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
                 <button
                   key={s.key}
                   disabled={!config.enabled}
+                  onClick={() => void updateAgentConfig(folderId, { strategy: s.key })}
                   className={cn(
                     "w-full text-left px-3 py-2 border transition-all",
                     !config.enabled && "opacity-40 cursor-not-allowed",
@@ -146,10 +168,18 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
             {permissions.map((p) => {
               const on = config.permissions[p.key];
               return (
-                <div
+                <button
                   key={p.key}
+                  type="button"
+                  disabled={!config.enabled}
+                  onClick={() =>
+                    void updateAgentConfig(folderId, {
+                      permissions: { [p.key]: !on },
+                    })
+                  }
                   className={cn(
-                    "flex items-center gap-2 px-2.5 py-1.5 border",
+                    "flex items-center gap-2 px-2.5 py-1.5 border text-left transition-colors",
+                    !config.enabled && "cursor-not-allowed",
                     on
                       ? "border-phosphor-400/30 bg-phosphor-400/5"
                       : "border-white/5 opacity-50"
@@ -166,7 +196,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
                       on ? "bg-phosphor-400" : "bg-ink-faint"
                     )}
                   />
-                </div>
+                </button>
               );
             })}
           </div>
@@ -200,6 +230,23 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
               <p className="text-[11px] text-ink-faint">{t("尚无动作记录", "No actions recorded yet")}</p>
             )}
           </div>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            onClick={() => void runNow()}
+            disabled={!config.enabled || running}
+            className="btn-phosphor w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+            {running ? t("Agent 执行中…", "Agent running…") : t("立即执行一次", "Run once")}
+          </button>
+          {runMessage && (
+            <p className="mt-2 px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted border border-white/5">
+              {runMessage}
+            </p>
+          )}
         </div>
       </div>
     </div>

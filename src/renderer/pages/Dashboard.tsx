@@ -14,10 +14,11 @@ import { themeAccent } from "@/lib/theme";
 export default function Dashboard() {
   const { text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
+  const visibleFolders = folders.filter((folder) => folder.status !== "archived");
   const activities = useMissionStore((s) => s.agentActivities);
 
   // 今日焦点：1 大 + 3 小
-  const activeFolders = folders
+  const activeFolders = visibleFolders
     .filter((f) => f.status === "active")
     .sort((a, b) => (a.deadline ?? Infinity) - (b.deadline ?? Infinity));
   const hero = activeFolders[0];
@@ -25,10 +26,10 @@ export default function Dashboard() {
 
   // 全局进度
   const globalProgress = Math.round(
-    folders.reduce((s, f) => s + f.progress, 0) / Math.max(folders.length, 1)
+    visibleFolders.reduce((s, f) => s + f.progress, 0) / Math.max(visibleFolders.length, 1)
   );
-  const totalTodos = folders.reduce((s, f) => s + f.todos.length, 0);
-  const doneTodos = folders.reduce(
+  const totalTodos = visibleFolders.reduce((s, f) => s + f.todos.length, 0);
+  const doneTodos = visibleFolders.reduce(
     (s, f) => s + f.todos.filter((t) => t.done).length,
     0
   );
@@ -67,7 +68,7 @@ export default function Dashboard() {
             <Radio className="w-3 h-3" strokeWidth={1.5} />
             {t("同步", "Sync")}
           </button>
-          <Link to="/folders" className="btn-phosphor">
+          <Link to="/folders?create=1" className="btn-phosphor">
             <Plus className="w-3 h-3" strokeWidth={2} />
             {t("新建舱体", "New folder")}
           </Link>
@@ -75,7 +76,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* 统计条 */}
-      <StatStrip folders={folders} activities={activities} />
+      <StatStrip folders={visibleFolders} activities={activities} />
 
       {/* 主网格：今日焦点（左大）+ 进度环 + 逾期雷达 */}
       <div className="grid grid-cols-12 gap-4">
