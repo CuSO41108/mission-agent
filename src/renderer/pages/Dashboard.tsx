@@ -49,12 +49,11 @@ export default function Dashboard() {
         className="flex items-center justify-between gap-4 flex-wrap"
       >
         <div>
-          <p className="text-[10px] data-mono text-phosphor-400/70 uppercase tracking-[0.25em] mb-1">
-            /// MISSION BRIEFING · {shortTime(Date.now())}
+          <p className="text-[11px] text-ink-faint mb-1">
+            {t("今日概览", "Today’s overview")} · {shortTime(Date.now())}
           </p>
-          <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            {t("指挥中心", "Command center")} ·{" "}
-            <span className="text-phosphor-400 text-glow-phosphor">ONLINE</span>
+          <h1 className="font-display font-semibold text-2xl text-ink">
+            {t("指挥中心", "Command center")}
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
             {t(
@@ -85,8 +84,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ListTodo className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
-              <h2 className="font-display text-[12px] uppercase tracking-[0.2em] text-ink">
-                {t("今日焦点", "Today’s focus")} · TODAY FOCUS
+              <h2 className="font-display text-[12px] font-semibold text-ink">
+                {t("今日焦点", "Today’s focus")}
               </h2>
             </div>
             <Link
@@ -100,6 +99,24 @@ export default function Dashboard() {
           {hero && (
             <div className="h-[180px]">
               <FocusCard folder={hero} variant="hero" />
+            </div>
+          )}
+
+          {!hero && (
+            <div className="panel min-h-[380px] flex flex-col items-center justify-center text-center px-6">
+              <div className="w-10 h-10 rounded bg-obsidian-850 border border-obsidian-700 flex items-center justify-center mb-3">
+                <ListTodo className="w-4 h-4 text-ink-faint" strokeWidth={1.75} />
+              </div>
+              <p className="text-[13px] font-medium text-ink">
+                {t("今天还没有需要处理的任务", "Nothing needs attention today")}
+              </p>
+              <p className="text-[11px] text-ink-faint mt-1 mb-4">
+                {t("新建任务舱后，近期事项会显示在这里", "Upcoming work will appear here after you create a folder")}
+              </p>
+              <Link to="/folders?create=1" className="btn-ghost">
+                <Plus className="w-3 h-3" strokeWidth={2} />
+                {t("新建任务舱", "New folder")}
+              </Link>
             </div>
           )}
 
@@ -130,12 +147,12 @@ export default function Dashboard() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <Gauge className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
-                  <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
+                  <h3 className="font-display text-[11px] font-semibold text-ink">
                     {t("全局进度", "Overall progress")}
                   </h3>
                 </div>
                 <div className="flex items-baseline gap-2 mb-3">
-                  <span className="font-display font-bold text-4xl text-phosphor-400 text-glow-phosphor data-mono leading-none">
+                  <span className="font-display font-semibold text-4xl text-ink data-mono leading-none">
                     {globalProgress}
                     <span className="text-xl">%</span>
                   </span>
@@ -178,9 +195,9 @@ export default function Dashboard() {
         <div className="col-span-12 lg:col-span-4 panel h-[320px] p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
-              <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                {t("接口流量", "Integration traffic")} · 24H
+              <span className="w-1.5 h-1.5 rounded-full bg-phosphor-400" />
+              <h3 className="font-display text-[11px] font-semibold text-ink">
+                {t("接口流量", "Integration traffic")} · 24h
               </h3>
             </div>
             <Link
@@ -209,24 +226,23 @@ function InterfaceBars() {
         const pct = (i.eventsToday / max) * 100;
         const color =
           i.type === "email"
-            ? "#00E5D4"
+            ? "rgb(var(--phosphor-400))"
             : i.type === "chat"
-              ? "#9D8CFF"
+              ? "rgb(var(--violet))"
               : i.type === "calendar"
-                ? "#FFB547"
-                : "#7FD1B9";
+                ? "rgb(var(--amber-500))"
+                : "rgb(var(--jade))";
         return (
           <div key={i.id} className="flex items-center gap-3">
             <span className="text-[10px] data-mono text-ink-muted w-16 truncate shrink-0">
               {i.name}
             </span>
-            <div className="flex-1 h-4 bg-white/3 relative overflow-hidden">
+            <div className="flex-1 h-4 bg-obsidian-850 rounded-sm relative overflow-hidden">
               <div
                 className="h-full transition-all duration-700"
                 style={{
                   width: `${Math.max(pct, 2)}%`,
-                  background: `linear-gradient(90deg, ${color}55, ${color})`,
-                  boxShadow: `0 0 8px ${color}66`,
+                  background: color,
                 }}
               />
               <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] data-mono text-ink">

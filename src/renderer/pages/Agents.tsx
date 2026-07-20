@@ -60,13 +60,11 @@ export default function Agents() {
       {/* 顶部 */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-[10px] data-mono text-phosphor-400/70 uppercase tracking-[0.25em] mb-1">
-            /// AGENT CONTROL CENTER
+          <p className="text-[11px] text-ink-faint mb-1">
+            {t("自动执行与审计", "Automation and audit")}
           </p>
-          <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            {t("Agent 控制台", "Agent console")} ·{" "}
-            <span className="text-phosphor-400 text-glow-phosphor">{activeAgents.length}</span>
-            <span className="text-ink-faint text-lg"> ONLINE</span>
+          <h1 className="font-display font-semibold text-2xl text-ink">
+            Agent <span className="text-ink-faint">{activeAgents.length}</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
             {t(
@@ -76,9 +74,9 @@ export default function Agents() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 border border-phosphor-400/20 bg-obsidian-850/60">
-            <Cpu className="w-3 h-3 text-phosphor-400" strokeWidth={1.5} />
-            <span className="text-[10px] data-mono text-phosphor-400">CPU 42% · MEM 1.2G</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 border border-obsidian-700 rounded bg-obsidian-800">
+            <Cpu className="w-3 h-3 text-ink-faint" strokeWidth={1.5} />
+            <span className="text-[10px] data-mono text-ink-muted">CPU 42% · MEM 1.2G</span>
           </div>
         </div>
       </div>
@@ -89,9 +87,9 @@ export default function Agents() {
           <div className="panel">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
               <div className="flex items-center gap-2">
-                <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
-                <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                  {t("Agent 舰队", "Agent fleet")} · FLEET
+                <span className="w-1.5 h-1.5 rounded-full bg-phosphor-400" />
+                <h3 className="font-display text-[11px] font-semibold text-ink">
+                  {t("Agent 列表", "Agents")}
                 </h3>
               </div>
               <span className="text-[9px] data-mono text-ink-faint">
@@ -114,7 +112,7 @@ export default function Agents() {
                 >
                   <div
                     className={cn(
-                      "relative w-8 h-8 flex items-center justify-center border shrink-0",
+                      "relative w-8 h-8 flex items-center justify-center border rounded shrink-0",
                       f.agentConfig.enabled
                         ? "border-phosphor-400/50 bg-phosphor-400/8"
                         : "border-ink-faint/30"
@@ -124,9 +122,6 @@ export default function Agents() {
                       className={cn("w-3.5 h-3.5", f.agentConfig.enabled ? "text-phosphor-400" : "text-ink-faint")}
                       strokeWidth={1.5}
                     />
-                    {f.agentConfig.enabled && (
-                      <span className="absolute inset-0 bg-scanline opacity-20 animate-flicker" />
-                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] text-ink truncate">{f.name}</p>

@@ -24,7 +24,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
       to={`/folders/${folder.id}`}
       className={cn(
         "group relative block panel overflow-hidden transition-all duration-200",
-        "hover:border-phosphor-400/50 hover:shadow-glow-phosphor",
+        "hover:border-obsidian-600 hover:shadow-panel",
         isHero ? "p-5 h-full" : "p-3.5 h-full"
       )}
       style={{ borderColor: accentTint(folder.coverColor, 0.19) }}
@@ -32,10 +32,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
       {/* 优先级条 */}
       <span
         className="absolute left-0 top-0 bottom-0 w-[3px]"
-        style={{
-          background: coverColor,
-          boxShadow: `0 0 12px ${coverColor}`,
-        }}
+        style={{ background: coverColor }}
       />
 
       {/* 背景大字水印 */}
@@ -115,13 +112,12 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
           </div>
 
           {/* 进度条 */}
-          <div className="h-[3px] bg-white/5 overflow-hidden">
+          <div className="h-[3px] bg-obsidian-850 rounded-sm overflow-hidden">
             <div
               className="h-full transition-all duration-700"
               style={{
                 width: `${folder.progress}%`,
                 background: coverColor,
-                boxShadow: `0 0 8px ${coverColor}`,
               }}
             />
           </div>

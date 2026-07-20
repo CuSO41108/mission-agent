@@ -7,14 +7,14 @@ interface StatusDotProps {
 }
 
 const COLOR: Record<string, string> = {
-  connected: "#00E5D4",
-  active: "#00E5D4",
-  done: "#7FD1B9",
-  disconnected: "#5C6773",
-  paused: "#FFB547",
-  error: "#FF6B6B",
-  beta: "#9D8CFF",
-  archived: "#5C6773",
+  connected: "rgb(var(--phosphor-400))",
+  active: "rgb(var(--phosphor-400))",
+  done: "rgb(var(--jade))",
+  disconnected: "rgb(var(--ink-faint))",
+  paused: "rgb(var(--amber-500))",
+  error: "rgb(var(--coral))",
+  beta: "rgb(var(--violet))",
+  archived: "rgb(var(--ink-faint))",
 };
 
 export default function StatusDot({ status, className, pulse = false }: StatusDotProps) {
@@ -30,10 +30,7 @@ export default function StatusDot({ status, className, pulse = false }: StatusDo
       )}
       <span
         className="relative inline-flex w-2 h-2 rounded-full"
-        style={{
-          backgroundColor: color,
-          boxShadow: `0 0 8px ${color}`,
-        }}
+        style={{ backgroundColor: color }}
       />
     </span>
   );

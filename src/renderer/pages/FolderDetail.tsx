@@ -67,7 +67,7 @@ export default function FolderDetail() {
   return (
     <div className="h-full flex flex-col">
       {/* 顶部信息条 */}
-      <div className="shrink-0 border-b border-phosphor-400/12 bg-obsidian-900/40 backdrop-blur-sm">
+      <div className="shrink-0 border-b border-obsidian-700 bg-obsidian-800">
         <div className="p-5 max-w-[1500px] mx-auto">
           {/* 面包屑 + 返回 */}
           <div className="flex items-center gap-3 mb-3">
@@ -76,7 +76,7 @@ export default function FolderDetail() {
               className="flex items-center gap-1.5 text-[11px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors"
             >
               <ArrowLeft className="w-3 h-3" strokeWidth={1.5} />
-              FOLDERS
+              {t("任务舱", "Folders")}
             </button>
             <span className="text-ink-faint">/</span>
             <span className="text-[11px] data-mono text-phosphor-400">
@@ -88,22 +88,21 @@ export default function FolderDetail() {
             <div className="flex items-start gap-4 min-w-0 flex-1">
               {/* 色块图标 */}
               <div
-                className="relative w-14 h-14 shrink-0 flex items-center justify-center border-2 clip-corner"
+                className="relative w-14 h-14 shrink-0 flex items-center justify-center border rounded"
                 style={{
                   borderColor: coverColor,
                   background: accentTint(folder.coverColor, 0.06),
-                  boxShadow: `0 0 24px -8px ${coverColor}`,
                 }}
               >
                 <span
                   className="font-display font-bold text-xl data-mono"
-                  style={{ color: coverColor, textShadow: `0 0 12px color-mix(in srgb, ${coverColor} 40%, transparent)` }}
+                  style={{ color: coverColor }}
                 >
                   {folder.progress}
                 </span>
                 <span
                   className="absolute -top-1 -right-1 w-2 h-2 rotate-45"
-                  style={{ background: coverColor, boxShadow: `0 0 8px ${coverColor}` }}
+                  style={{ background: coverColor }}
                 />
               </div>
 

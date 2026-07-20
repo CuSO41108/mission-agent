@@ -40,10 +40,10 @@ export default function Panel({
       {(title || right) && (
         <header className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-white/5">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="w-1 h-1 bg-phosphor-400 animate-pulse-dot" />
+            <span className="w-1.5 h-1.5 rounded-full bg-phosphor-400" />
             <div className="min-w-0">
               {title && (
-                <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink truncate">
+                <h3 className="font-display text-[11px] font-semibold text-ink truncate">
                   {title}
                 </h3>
               )}

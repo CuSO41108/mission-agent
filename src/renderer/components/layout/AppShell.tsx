@@ -15,12 +15,12 @@ export default function AppShell() {
   const location = useLocation();
   const { text: t } = usePreferences();
   const titles: Record<string, { title: string; breadcrumb: string[] }> = {
-    "/": { title: t("指挥中心", "Command center"), breadcrumb: ["SECTOR", "DASHBOARD"] },
-    "/folders": { title: t("任务舱库", "Mission folders"), breadcrumb: ["SECTOR", "FOLDERS"] },
-    "/integrations": { title: t("接口舱", "Integrations"), breadcrumb: ["SECTOR", "INTEGRATIONS"] },
-    "/workflow": { title: t("工作流编排", "Workflow builder"), breadcrumb: ["SECTOR", "WORKFLOW"] },
-    "/agents": { title: t("Agent 控制台", "Agent console"), breadcrumb: ["SECTOR", "AGENTS"] },
-    "/settings": { title: t("设置", "Settings"), breadcrumb: ["SYSTEM", "SETTINGS"] },
+    "/": { title: t("概览", "Overview"), breadcrumb: [t("工作台", "Workspace")] },
+    "/folders": { title: t("任务舱", "Mission folders"), breadcrumb: [t("工作台", "Workspace")] },
+    "/integrations": { title: t("集成", "Integrations"), breadcrumb: [t("工作台", "Workspace")] },
+    "/workflow": { title: t("工作流", "Workflows"), breadcrumb: [t("自动化", "Automation")] },
+    "/agents": { title: t("Agent", "Agents"), breadcrumb: [t("自动化", "Automation")] },
+    "/settings": { title: t("设置", "Settings"), breadcrumb: [t("Mission Console", "Mission Console")] },
   };
 
   // 匹配路由标题（含动态路由）
@@ -34,11 +34,11 @@ export default function AppShell() {
   let breadcrumb = meta.breadcrumb;
   if (location.pathname.startsWith("/folders/")) {
     title = t("任务舱详情", "Mission folder");
-    breadcrumb = ["FOLDERS", "INTERIOR"];
+    breadcrumb = [t("任务舱", "Mission folders")];
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden text-ink">
+    <div className="flex h-screen w-screen overflow-hidden bg-obsidian-950 text-ink">
       <Sidebar />
       <main className="flex-1 flex flex-col min-w-0 relative">
         <Topbar
@@ -70,7 +70,7 @@ export default function AppShell() {
                 animate={{ width: 340, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.25, ease: "easeOut" }}
-                className="shrink-0 h-full overflow-hidden border-l border-phosphor-400/12 bg-obsidian-900/60 backdrop-blur-md"
+                className="shrink-0 h-full overflow-hidden border-l border-obsidian-700 bg-obsidian-800"
               >
                 <div className="w-[340px] h-full">
                   <CopilotPanel />

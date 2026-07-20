@@ -50,27 +50,19 @@ export default function StatStrip({ folders, activities }: StatStripProps) {
       {stats.map((s) => (
         <div
           key={s.label}
-          className="panel px-4 py-3 relative overflow-hidden group hover:border-phosphor-400/30 transition-colors"
+          className="panel px-4 py-3 relative overflow-hidden group hover:border-obsidian-600 transition-colors"
         >
-          {/* 装饰扫描 */}
-          <span
-            className="absolute top-0 right-0 w-12 h-12 opacity-10 group-hover:opacity-20 transition-opacity"
-            style={{
-              background: `radial-gradient(circle at top right, ${s.color}, transparent 70%)`,
-            }}
-          />
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] uppercase tracking-[0.2em] text-ink-faint font-display">
+            <span className="text-[10px] text-ink-faint font-medium">
               {s.label}
             </span>
             <s.icon className="w-3 h-3" strokeWidth={1.5} style={{ color: s.color }} />
           </div>
           <div className="flex items-baseline gap-1.5">
             <span
-              className="font-display font-bold text-2xl data-mono leading-none"
-              style={{ color: s.color, textShadow: `0 0 12px color-mix(in srgb, ${s.color} 40%, transparent)` }}
+              className="font-display font-semibold text-2xl data-mono leading-none text-ink"
             >
-              {String(s.value).padStart(2, "0")}
+              {s.value}
             </span>
             <span className="text-[9px] data-mono text-ink-faint">{s.suffix}</span>
           </div>

@@ -35,15 +35,14 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
     >
       <Link
         to={`/folders/${folder.id}`}
-        className="group relative block panel h-full overflow-hidden transition-all duration-200 hover:border-phosphor-400/50 hover:shadow-glow-phosphor"
+        className="group relative block panel h-full overflow-hidden transition-all duration-200 hover:border-obsidian-600 hover:shadow-panel"
         style={{ borderColor: accentTint(folder.coverColor, 0.16) }}
       >
         {/* 顶部色带 */}
         <div
           className="h-[3px] w-full"
           style={{
-            background: `linear-gradient(90deg, ${coverColor}, transparent)`,
-            boxShadow: `0 0 12px ${coverColor}`,
+            background: coverColor,
           }}
         />
 
@@ -63,7 +62,7 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
           </div>
 
           {/* 标题 */}
-          <h3 className="font-display font-bold text-[14px] text-ink leading-snug mb-1 line-clamp-2 group-hover:text-phosphor-100 transition-colors">
+          <h3 className="font-display font-semibold text-[14px] text-ink leading-snug mb-1 line-clamp-2 group-hover:text-phosphor-600 transition-colors">
             {folder.name}
           </h3>
           <p className="text-[10px] data-mono text-ink-faint uppercase tracking-wider mb-3">
@@ -95,7 +94,7 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
               </p>
               <span
                 className="data-mono font-bold text-lg leading-none"
-                style={{ color: coverColor, textShadow: `0 0 10px color-mix(in srgb, ${coverColor} 33%, transparent)` }}
+                style={{ color: coverColor }}
               >
                 {folder.progress}%
               </span>
@@ -109,7 +108,6 @@ export default function FolderCard({ folder, index = 0 }: FolderCardProps) {
               style={{
                 width: `${folder.progress}%`,
                 background: coverColor,
-                boxShadow: `0 0 8px ${coverColor}`,
               }}
             />
           </div>

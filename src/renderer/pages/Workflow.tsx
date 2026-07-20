@@ -28,12 +28,11 @@ export default function WorkflowPage() {
       {/* 顶部 */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-[10px] data-mono text-phosphor-400/70 uppercase tracking-[0.25em] mb-1">
-            /// AUTOMATION GRID
+          <p className="text-[11px] text-ink-faint mb-1">
+            {t("编排自动化规则", "Build automation rules")}
           </p>
-          <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            {t("工作流编排", "Workflow builder")} ·{" "}
-            <span className="text-phosphor-400 text-glow-phosphor">{enabledCount}</span>
+          <h1 className="font-display font-semibold text-2xl text-ink">
+            {t("工作流", "Workflows")} <span className="text-ink-faint">{enabledCount}</span>
             <span className="text-ink-faint text-lg">/{workflows.length}</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
@@ -67,7 +66,7 @@ export default function WorkflowPage() {
               <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div
                   className={cn(
-                    "w-8 h-8 shrink-0 flex items-center justify-center border clip-corner",
+                    "w-8 h-8 shrink-0 flex items-center justify-center border rounded",
                     w.enabled
                       ? "border-phosphor-400/50 bg-phosphor-400/8 text-phosphor-400"
                       : "border-ink-faint/30 text-ink-faint"
@@ -95,7 +94,7 @@ export default function WorkflowPage() {
                   className={cn(
                     "absolute top-0.5 w-4 h-4 rounded-full transition-all",
                     w.enabled
-                      ? "left-[20px] bg-phosphor-400 shadow-glow-phosphor"
+                      ? "left-[20px] bg-phosphor-400"
                       : "left-0.5 bg-ink-muted"
                   )}
                 />

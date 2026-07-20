@@ -278,25 +278,24 @@ export default function CopilotPanel() {
   return (
     <div className="flex flex-col h-full">
       {/* 头部 */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-phosphor-400/12">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-obsidian-700">
         <div className="flex items-center gap-2.5">
-          <div className="relative w-7 h-7 flex items-center justify-center border border-phosphor-400/50 bg-phosphor-400/8">
-            <Bot className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
-            <span className="absolute inset-0 bg-scanline opacity-20 animate-flicker" />
+          <div className="relative w-7 h-7 flex items-center justify-center rounded border border-phosphor-400/20 bg-phosphor-400/10">
+            <Bot className="w-3.5 h-3.5 text-phosphor-500" strokeWidth={1.75} />
           </div>
           <div>
-            <h3 className="font-display text-[12px] uppercase tracking-[0.18em] text-ink leading-none">
+            <h3 className="font-display text-[12px] font-semibold text-ink leading-none">
               {t("AI 副驾", "AI copilot")}
             </h3>
-            <p className="text-[9px] data-mono text-phosphor-400/70 mt-1 leading-none flex items-center gap-1">
-              <span className={cn("w-1 h-1", streaming ? "bg-amber-400 animate-pulse-dot" : "bg-jade animate-pulse-dot")} />
-              {streaming ? "COPILOT · THINKING" : "COPILOT · READY"}
+            <p className="text-[9px] text-ink-faint mt-1.5 leading-none flex items-center gap-1">
+              <span className={cn("w-1.5 h-1.5 rounded-full", streaming ? "bg-amber-400 animate-pulse-dot" : "bg-jade")} />
+              {streaming ? t("正在思考", "Thinking") : t("已就绪", "Ready")}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="text-[10px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors border border-phosphor-400/15 hover:border-phosphor-400/40 px-2 py-1"
+            className="text-[10px] text-ink-faint hover:text-ink transition-colors border border-obsidian-700 rounded hover:bg-obsidian-850 px-2 py-1"
             title={t("清空上下文", "Clear context")}
           >
             {t("清空", "Clear")}
@@ -313,17 +312,17 @@ export default function CopilotPanel() {
       </div>
 
       {/* 快捷指令 */}
-      <div className="px-3 py-2 border-t border-phosphor-400/10 flex flex-wrap gap-1.5">
+      <div className="px-3 py-2 border-t border-obsidian-700 flex flex-wrap gap-1.5">
         {quickCmds.map((c) => (
           <button
             key={c.label}
             onClick={() => handleSend(c.text)}
             disabled={streaming}
             className={cn(
-              "flex items-center gap-1 px-2 py-1 text-[10px] border transition-colors",
+              "flex items-center gap-1 px-2 py-1 text-[10px] border rounded transition-colors",
               streaming
                 ? "opacity-40 cursor-not-allowed border-white/5 text-ink-faint"
-                : "text-ink-muted hover:text-phosphor-100 border-phosphor-400/15 hover:border-phosphor-400/40 hover:bg-phosphor-400/8"
+                : "text-ink-muted hover:text-ink border-obsidian-700 hover:bg-obsidian-850"
             )}
           >
             <c.icon className="w-2.5 h-2.5" strokeWidth={1.5} />
@@ -333,7 +332,7 @@ export default function CopilotPanel() {
       </div>
 
       {/* 输入 */}
-      <div className="p-3 border-t border-phosphor-400/12">
+      <div className="p-3 border-t border-obsidian-700">
         <div className="relative group">
           <input
             value={input}
@@ -342,17 +341,17 @@ export default function CopilotPanel() {
             disabled={streaming}
             placeholder={streaming ? t("Agent 思考中…", "Agent is thinking…") : t("下达指令…", "Give an instruction…")}
             className={cn(
-              "w-full pl-3 pr-10 py-2.5 bg-obsidian-850/80 border text-[12px] text-ink placeholder:text-ink-faint focus:outline-none transition-colors",
+              "w-full pl-3 pr-10 py-2.5 bg-obsidian-800 border rounded text-[12px] text-ink placeholder:text-ink-faint focus:outline-none transition-colors",
               streaming
                 ? "border-phosphor-400/10 cursor-not-allowed"
-                : "border-phosphor-400/20 focus:border-phosphor-400/60 focus:bg-obsidian-850"
+                : "border-obsidian-700 focus:border-phosphor-400"
             )}
           />
           <button
             onClick={() => handleSend()}
             disabled={streaming || !input.trim()}
             className={cn(
-              "absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center border transition-colors",
+              "absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded border transition-colors",
               streaming || !input.trim()
                 ? "opacity-30 cursor-not-allowed bg-phosphor-400/5 border-phosphor-400/20 text-phosphor-400/40"
                 : "bg-phosphor-400/15 border-phosphor-400/40 text-phosphor-300 hover:bg-phosphor-400/25 hover:text-phosphor-100"

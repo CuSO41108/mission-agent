@@ -9,7 +9,7 @@ export default {
     },
     extend: {
       colors: {
-        // 黑曜石背景层
+        // Compatibility names retained for existing components; these now map to neutral surfaces.
         obsidian: {
           950: "rgb(var(--obsidian-950) / <alpha-value>)",
           900: "rgb(var(--obsidian-900) / <alpha-value>)",
@@ -24,7 +24,7 @@ export default {
           muted: "rgb(var(--ink-muted) / <alpha-value>)",
           faint: "rgb(var(--ink-faint) / <alpha-value>)",
         },
-        // 主强调：磷光青（CRT 磷光）
+        // Primary product accent.
         phosphor: {
           50: "rgb(var(--phosphor-50) / <alpha-value>)",
           100: "rgb(var(--phosphor-100) / <alpha-value>)",
@@ -49,20 +49,20 @@ export default {
         violet: "rgb(var(--violet) / <alpha-value>)",
       },
       fontFamily: {
-        display: ['"Chakra Petch"', "system-ui", "sans-serif"],
-        sans: ['"IBM Plex Sans"', "system-ui", "sans-serif"],
+        display: ['"Segoe UI Variable Display"', '"Segoe UI"', '"PingFang SC"', '"Microsoft YaHei"', "system-ui", "sans-serif"],
+        sans: ['"Segoe UI Variable Text"', '"Segoe UI"', '"PingFang SC"', '"Microsoft YaHei"', "system-ui", "sans-serif"],
         mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       borderRadius: {
-        xs: "2px",
-        sm: "3px",
-        DEFAULT: "4px",
+        xs: "3px",
+        sm: "5px",
+        DEFAULT: "6px",
       },
       boxShadow: {
-        "glow-phosphor": "0 0 0 1px rgba(0,229,212,0.25), 0 0 24px -8px rgba(0,229,212,0.45)",
-        "glow-amber": "0 0 0 1px rgba(255,181,71,0.25), 0 0 24px -8px rgba(255,181,71,0.35)",
-        "glow-coral": "0 0 0 1px rgba(255,107,107,0.3), 0 0 24px -8px rgba(255,107,107,0.4)",
-        panel: "0 1px 0 0 rgba(255,255,255,0.03) inset, 0 8px 24px -12px rgba(0,0,0,0.6)",
+        "glow-phosphor": "0 1px 2px rgba(23, 43, 77, 0.08), 0 8px 24px rgba(23, 43, 77, 0.08)",
+        "glow-amber": "0 1px 2px rgba(23, 43, 77, 0.08)",
+        "glow-coral": "0 1px 2px rgba(23, 43, 77, 0.08)",
+        panel: "0 1px 2px rgba(23, 43, 77, 0.06), 0 6px 18px rgba(23, 43, 77, 0.04)",
       },
       backgroundImage: {
         "grid-faint":

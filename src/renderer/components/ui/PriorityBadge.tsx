@@ -21,7 +21,7 @@ export default function PriorityBadge({ priority, className }: PriorityBadgeProp
     >
       <span
         className="w-1 h-1 rounded-full"
-        style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+        style={{ backgroundColor: color }}
       />
       {priorityLabel(priority, locale)}
     </span>

@@ -14,7 +14,8 @@ interface PreferencesContextValue {
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 
 const LOCALE_KEY = "mission-console:locale";
-const THEME_KEY = "mission-console:theme";
+// Version the preference so existing HUD-theme installs open in the new light default once.
+const THEME_KEY = "mission-console:theme:v2";
 
 function getStoredPreference<T extends string>(key: string, fallback: T, options: readonly T[]): T {
   const value = window.localStorage.getItem(key);
@@ -26,7 +27,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     getStoredPreference(LOCALE_KEY, "zh-CN", ["zh-CN", "en-US"]),
   );
   const [theme, setTheme] = useState<Theme>(() =>
-    getStoredPreference(THEME_KEY, "dark", ["dark", "light"]),
+    getStoredPreference(THEME_KEY, "light", ["dark", "light"]),
   );
 
   useEffect(() => {

@@ -124,23 +124,22 @@ export default function Folders() {
       {/* 顶部 */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-[10px] data-mono text-phosphor-400/70 uppercase tracking-[0.25em] mb-1">
-            /// FLEET REGISTRY
+          <p className="text-[11px] text-ink-faint mb-1">
+            {t("集中查看和管理所有任务", "Review and manage all work")}
           </p>
-          <h1 className="font-display font-bold text-2xl text-ink tracking-tight">
-            {t("任务舱库", "Mission folders")} ·{" "}
-            <span className="text-phosphor-400 text-glow-phosphor">{filtered.length}</span>
+          <h1 className="font-display font-semibold text-2xl text-ink">
+            {t("任务舱", "Mission folders")} <span className="text-ink-faint">{filtered.length}</span>
           </h1>
         </div>
         <div className="flex items-center gap-2">
           {/* 视图切换 */}
-          <div className="flex items-center border border-phosphor-400/15">
+          <div className="flex items-center border border-obsidian-700 rounded bg-obsidian-800 overflow-hidden">
             <button
               onClick={() => setView("grid")}
               className={cn(
                 "px-2 py-1.5 flex items-center gap-1.5 text-[11px] transition-colors",
                 view === "grid"
-                  ? "bg-phosphor-400/12 text-phosphor-100"
+                  ? "bg-obsidian-850 text-ink"
                   : "text-ink-muted hover:text-ink"
               )}
               title={t("网格视图", "Grid view")}
@@ -150,9 +149,9 @@ export default function Folders() {
             <button
               onClick={() => setView("list")}
               className={cn(
-                "px-2 py-1.5 flex items-center gap-1.5 text-[11px] transition-colors border-l border-phosphor-400/15",
+                "px-2 py-1.5 flex items-center gap-1.5 text-[11px] transition-colors border-l border-obsidian-700",
                 view === "list"
-                  ? "bg-phosphor-400/12 text-phosphor-100"
+                  ? "bg-obsidian-850 text-ink"
                   : "text-ink-muted hover:text-ink"
               )}
               title={t("列表视图", "List view")}
@@ -175,11 +174,10 @@ export default function Folders() {
               key={tab.key}
               onClick={() => setStatus(tab.key)}
               className={cn(
-                "px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider border transition-all",
-                "font-display",
+                "px-3 py-1.5 text-[11px] font-medium border rounded transition-all",
                 status === tab.key
-                  ? "border-phosphor-400/50 bg-phosphor-400/10 text-phosphor-100"
-                  : "border-white/5 text-ink-muted hover:text-ink hover:border-white/15"
+                  ? "border-phosphor-400/25 bg-phosphor-400/10 text-phosphor-600"
+                  : "border-transparent text-ink-muted hover:text-ink hover:bg-obsidian-850"
               )}
             >
               {tab.label}
@@ -192,7 +190,7 @@ export default function Folders() {
           <select
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
-            className="bg-obsidian-850 border border-phosphor-400/15 text-[11px] text-ink px-2 py-1.5 focus:outline-none focus:border-phosphor-400/40 data-mono"
+            className="bg-obsidian-800 border border-obsidian-700 rounded text-[11px] text-ink px-2 py-1.5 focus:outline-none focus:border-phosphor-400 data-mono"
           >
             <option value="all">{t("全部优先级", "All priorities")}</option>
             {["critical", "high", "medium", "low"].map((k) => (
@@ -207,7 +205,7 @@ export default function Folders() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("搜索舱体", "Search folders")}
-              className="pl-7 pr-3 py-1.5 bg-obsidian-850 border border-phosphor-400/15 text-[11px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/40 w-40"
+              className="pl-7 pr-3 py-1.5 bg-obsidian-800 border border-obsidian-700 rounded text-[11px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400 w-40"
             />
           </div>
         </div>
@@ -229,7 +227,7 @@ export default function Folders() {
       {/* 舱体网格 / 列表 */}
       {filtered.length === 0 ? (
         <div className="panel py-16 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 border border-phosphor-400/30 flex items-center justify-center mb-3">
+          <div className="w-12 h-12 rounded border border-obsidian-700 bg-obsidian-850 flex items-center justify-center mb-3">
             <Plus className="w-5 h-5 text-phosphor-400" strokeWidth={1.5} />
           </div>
           <p className="text-[13px] text-ink mb-1">{t("未找到匹配的舱体", "No matching folders")}</p>

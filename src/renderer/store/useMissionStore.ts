@@ -211,7 +211,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   // 以下仍用 mock，留到后续 Phase 接入 SQLite
   agentActivities: mockAgentActivities,
   copilotMessages: mockCopilotMessages,
-  copilotOpen: true,
+  copilotOpen: false,
   copilotStreaming: false,
   notifications: mockNotifications,
   commandPaletteOpen: false,

@@ -4,68 +4,56 @@
 
 @layer base {
   :root {
-    --obsidian-950: 7 10 15;
-    --obsidian-900: 10 14 20;
-    --obsidian-850: 15 20 28;
-    --obsidian-800: 19 25 34;
-    --obsidian-700: 26 33 44;
-    --obsidian-600: 34 43 56;
-    --ink: 230 237 243;
-    --ink-muted: 139 152 165;
-    --ink-faint: 92 103 115;
-    --phosphor-50: 230 255 251;
-    --phosphor-100: 179 255 245;
-    --phosphor-200: 128 255 236;
-    --phosphor-300: 77 255 226;
-    --phosphor-400: 0 229 212;
-    --phosphor-500: 0 199 184;
-    --phosphor-600: 0 168 155;
-    --phosphor-700: 0 138 128;
-    --phosphor-800: 0 107 100;
-    --phosphor-900: 0 77 72;
-    --amber-400: 255 206 107;
-    --amber-500: 255 181 71;
-    --amber-600: 232 154 42;
-    --jade: 127 209 185;
-    --coral: 255 107 107;
-    --violet: 157 140 255;
+    --obsidian-950: 244 246 248;
+    --obsidian-900: 248 249 251;
+    --obsidian-850: 241 243 246;
+    --obsidian-800: 255 255 255;
+    --obsidian-700: 220 224 230;
+    --obsidian-600: 199 205 214;
+    --ink: 25 28 33;
+    --ink-muted: 94 101 112;
+    --ink-faint: 138 145 155;
+    --phosphor-50: 29 78 216;
+    --phosphor-100: 29 78 216;
+    --phosphor-200: 31 81 220;
+    --phosphor-300: 33 88 229;
+    --phosphor-400: 37 99 235;
+    --phosphor-500: 29 78 216;
+    --phosphor-600: 27 67 184;
+    --phosphor-700: 26 56 153;
+    --phosphor-800: 24 46 122;
+    --phosphor-900: 22 38 96;
+    --amber-400: 217 119 6;
+    --amber-500: 194 91 0;
+    --amber-600: 158 67 0;
+    --jade: 22 133 90;
+    --coral: 208 56 64;
+    --violet: 134 75 218;
     --bg-obsidian: rgb(var(--obsidian-900));
     --bg-panel: rgb(var(--obsidian-800));
-    --border-phosphor: rgba(0, 229, 212, 0.18);
-    color-scheme: dark;
+    --border-phosphor: rgba(30, 41, 59, 0.12);
+    color-scheme: light;
   }
 
-  :root[data-theme="light"] {
-    --obsidian-950: 241 246 248;
-    --obsidian-900: 247 251 252;
-    --obsidian-850: 237 244 246;
-    --obsidian-800: 255 255 255;
-    --obsidian-700: 222 232 235;
-    --obsidian-600: 203 217 221;
-    --ink: 20 40 46;
-    --ink-muted: 69 91 98;
-    --ink-faint: 103 124 130;
-    /* Light mode uses ink-grade accents so text and controls meet readable contrast. */
-    --phosphor-50: 0 91 84;
-    --phosphor-100: 0 100 92;
-    --phosphor-200: 0 110 101;
-    --phosphor-300: 0 119 109;
-    --phosphor-400: 0 111 102;
-    --phosphor-500: 0 98 90;
-    --phosphor-600: 0 85 78;
-    --phosphor-700: 0 72 66;
-    --phosphor-800: 0 59 54;
-    --phosphor-900: 0 46 42;
-    --amber-400: 159 91 0;
-    --amber-500: 143 78 0;
-    --amber-600: 120 64 0;
-    --jade: 20 111 86;
-    --coral: 190 55 55;
-    --violet: 91 75 185;
-    --bg-obsidian: rgb(var(--obsidian-900));
-    --bg-panel: rgb(var(--obsidian-800));
-    --border-phosphor: rgba(0, 147, 137, 0.25);
-    color-scheme: light;
+  :root[data-theme="dark"] {
+    --obsidian-950: 22 24 28;
+    --obsidian-900: 27 29 34;
+    --obsidian-850: 34 37 43;
+    --obsidian-800: 39 42 49;
+    --obsidian-700: 55 59 67;
+    --obsidian-600: 73 78 88;
+    --ink: 240 242 245;
+    --ink-muted: 174 181 191;
+    --ink-faint: 125 133 145;
+    --phosphor-50: 219 234 254;
+    --phosphor-100: 191 219 254;
+    --phosphor-200: 147 197 253;
+    --phosphor-300: 96 165 250;
+    --phosphor-400: 59 130 246;
+    --phosphor-500: 37 99 235;
+    --phosphor-600: 29 78 216;
+    --border-phosphor: rgba(255, 255, 255, 0.1);
+    color-scheme: dark;
   }
 
   html,
@@ -74,19 +62,11 @@
     height: 100%;
   }
 
-  :root[data-theme="light"] #root {
-    background-image:
-      radial-gradient(circle at 20% 0%, rgba(0, 180, 165, 0.1), transparent 42%),
-      radial-gradient(circle at 80% 100%, rgba(110, 91, 220, 0.06), transparent 40%),
-      linear-gradient(rgba(20, 54, 62, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(20, 54, 62, 0.045) 1px, transparent 1px);
-  }
-
   body {
     margin: 0;
     background-color: var(--bg-obsidian);
     color: rgb(var(--ink));
-    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
     font-feature-settings: "ss01", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -94,21 +74,17 @@
     overflow: hidden;
   }
 
-  /* 全局背景：黑曜石底 + 极淡网格 + 噪点 */
+  body * {
+    letter-spacing: 0 !important;
+  }
+
   #root {
     background-color: var(--bg-obsidian);
-    background-image:
-      radial-gradient(circle at 20% 0%, rgba(0, 229, 212, 0.04), transparent 45%),
-      radial-gradient(circle at 80% 100%, rgba(157, 140, 255, 0.03), transparent 40%),
-      linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-    background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
-    background-attachment: fixed;
   }
 
   ::selection {
-    background: rgba(0, 229, 212, 0.28);
-    color: #e6fffb;
+    background: rgba(37, 99, 235, 0.18);
+    color: rgb(var(--ink));
   }
 
   /* 滚动条 */
@@ -120,97 +96,107 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(0, 229, 212, 0.15);
-    border-radius: 0;
+    background: rgb(var(--obsidian-600) / 0.7);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 229, 212, 0.3);
+    background: rgb(var(--ink-faint) / 0.7);
+    background-clip: padding-box;
   }
 
-  /* 标题字体 */
   h1, h2, h3, h4 {
-    font-family: "Chakra Petch", system-ui, sans-serif;
-    letter-spacing: -0.01em;
+    font-family: "Segoe UI Variable Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    letter-spacing: 0;
+  }
+
+  button, a, input, select, textarea {
+    outline: none;
+  }
+
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    box-shadow: 0 0 0 3px rgb(var(--phosphor-400) / 0.18);
   }
 }
 
 @layer components {
-  /* 面板基础：半透明 + 磷光青边框 + 顶部高光条 */
   .panel {
     position: relative;
-    background-color: rgb(var(--obsidian-800) / 0.7);
+    background-color: rgb(var(--obsidian-800));
     border: 1px solid var(--border-phosphor);
-    backdrop-filter: blur(8px);
+    border-radius: 7px;
+    box-shadow: 0 1px 2px rgba(23, 43, 77, 0.04);
   }
   .panel::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 8%;
-    right: 8%;
-    height: 1px;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(0, 229, 212, 0.55),
-      transparent
-    );
-    opacity: 0.7;
+    display: none;
   }
 
-  /* 磷光青描边按钮 */
+  [class~="border-white/5"],
+  [class~="border-white/8"],
+  [class~="border-white/10"] {
+    border-color: rgb(var(--obsidian-700) / 0.75);
+  }
+
+  [class~="bg-white/3"],
+  [class~="bg-white/5"],
+  [class~="bg-white/8"],
+  [class~="bg-white/10"] {
+    background-color: rgb(var(--obsidian-850));
+  }
+
   .btn-phosphor {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
-    @apply border border-phosphor-400/60 bg-phosphor-400/5 text-phosphor-100;
-    font-family: "Chakra Petch", sans-serif;
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all duration-200;
+    @apply border border-phosphor-500 bg-phosphor-500 text-white rounded;
+    font-family: inherit;
+    box-shadow: 0 1px 2px rgba(29, 78, 216, 0.18);
   }
   .btn-phosphor:hover {
-    @apply bg-phosphor-400/15 border-phosphor-400 text-phosphor-50;
-    box-shadow: 0 0 0 1px rgba(0, 229, 212, 0.3), 0 0 20px -6px rgba(0, 229, 212, 0.5);
+    @apply bg-phosphor-600 border-phosphor-600 text-white;
+    box-shadow: 0 3px 8px rgba(29, 78, 216, 0.18);
   }
   .btn-phosphor:active {
     transform: translateY(1px);
   }
 
-  /* 线框次按钮 */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
-    @apply border border-ink-faint/40 text-ink-muted hover:text-ink hover:border-ink-muted;
-    font-family: "Chakra Petch", sans-serif;
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium transition-all duration-200;
+    @apply border border-obsidian-700 bg-obsidian-800 text-ink-muted hover:text-ink hover:bg-obsidian-850 rounded;
+    font-family: inherit;
   }
 
   /* 图标按钮（方框风格） */
   .btn-icon {
-    @apply inline-flex items-center justify-center w-8 h-8 transition-colors;
-    @apply border border-phosphor-400/30 bg-phosphor-400/5 text-phosphor-100 hover:bg-phosphor-400/15;
+    @apply inline-flex items-center justify-center w-8 h-8 transition-colors rounded;
+    @apply border border-obsidian-700 bg-obsidian-800 text-ink-muted hover:bg-obsidian-850 hover:text-ink;
   }
 
   /* 表单输入框 */
   .input {
-    @apply w-full px-3 py-2 text-[12px] text-ink bg-obsidian-900/60 border border-white/10;
-    @apply focus:outline-none focus:border-phosphor-400/60 focus:bg-obsidian-900/90;
+    @apply w-full px-3 py-2 text-[12px] text-ink bg-obsidian-800 border border-obsidian-700 rounded;
+    @apply focus:outline-none focus:border-phosphor-400 focus:bg-obsidian-800;
     @apply placeholder:text-ink-faint/60;
-    font-family: "JetBrains Mono", monospace;
+    font-family: inherit;
   }
 
   /* 危险按钮 */
   .btn-coral {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition-all duration-150;
-    @apply border border-coral/60 bg-coral/5 text-coral;
-    font-family: "Chakra Petch", sans-serif;
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium transition-all duration-200 rounded;
+    @apply border border-coral/30 bg-coral/5 text-coral hover:bg-coral/10;
+    font-family: inherit;
   }
 
   /* 数据徽标：等宽字距 */
   .data-mono {
     font-family: "JetBrains Mono", monospace;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
   }
 
   /* 标签芯片 */
   .chip {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider border;
-    font-family: "Chakra Petch", sans-serif;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium border rounded-sm;
+    font-family: inherit;
   }
 
   /* 角标装饰：四角直角线 */
@@ -218,36 +204,29 @@
     position: relative;
   }
   .corners::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(to right, rgba(0, 229, 212, 0.35), transparent 8px) top left / 8px 1px no-repeat,
-      linear-gradient(to bottom, rgba(0, 229, 212, 0.35), transparent 8px) top left / 1px 8px no-repeat,
-      linear-gradient(to left, rgba(0, 229, 212, 0.35), transparent 8px) top right / 8px 1px no-repeat,
-      linear-gradient(to bottom, rgba(0, 229, 212, 0.35), transparent 8px) top right / 1px 8px no-repeat,
-      linear-gradient(to right, rgba(0, 229, 212, 0.35), transparent 8px) bottom left / 8px 1px no-repeat,
-      linear-gradient(to top, rgba(0, 229, 212, 0.35), transparent 8px) bottom left / 1px 8px no-repeat,
-      linear-gradient(to left, rgba(0, 229, 212, 0.35), transparent 8px) bottom right / 8px 1px no-repeat,
-      linear-gradient(to top, rgba(0, 229, 212, 0.35), transparent 8px) bottom right / 1px 8px no-repeat;
+    display: none;
   }
 }
 
 @layer utilities {
+  .uppercase {
+    text-transform: none !important;
+  }
+
   .text-glow-phosphor {
-    text-shadow: 0 0 12px rgba(0, 229, 212, 0.45);
+    text-shadow: none;
   }
   .text-glow-amber {
-    text-shadow: 0 0 12px rgba(255, 181, 71, 0.4);
+    text-shadow: none;
   }
   .text-glow-coral {
-    text-shadow: 0 0 12px rgba(255, 107, 107, 0.4);
+    text-shadow: none;
   }
   .bg-panel-solid {
     background-color: var(--bg-panel);
   }
   .clip-corner {
-    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    clip-path: none;
+    border-radius: 6px;
   }
 }
