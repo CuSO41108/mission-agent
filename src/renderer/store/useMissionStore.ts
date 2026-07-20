@@ -11,6 +11,7 @@ import type {
   CreateFolderInput,
   CreateTodoInput,
   UpdateAgentConfigInput,
+  UpsertIntegrationInput,
 } from "@/types";
 // Phase 3：folder/integration/workflow 改为从 SQLite 拉取
 // 以下 mock 仍保留：agentActivity / copilot / notification 留到后续 Phase 接入
@@ -46,7 +47,9 @@ interface MissionState {
   runAgentOnce: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
   setFolderStatus: (folderId: string, status: TaskFolder["status"]) => void;
   toggleWorkflow: (id: string) => void;
-  toggleIntegration: (id: string) => void;
+  createIntegration: (input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
+  updateIntegration: (id: string, input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
+  deleteIntegration: (id: string) => Promise<boolean>;
   sendCopilot: (content: string) => void;
   pushCopilot: (content: string) => void;
   setCopilotOpen: (open: boolean) => void;
@@ -371,18 +374,27 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       .catch((err) => console.error("[store] toggleWorkflow IPC 失败：", err));
   },
 
-  toggleIntegration: (id) =>
-    set((s) => ({
-      integrations: s.integrations.map((i) =>
-        i.id === id
-          ? {
-              ...i,
-              status: i.status === "connected" ? "disconnected" : "connected",
-              lastSync: i.status === "disconnected" ? Date.now() : i.lastSync,
-            }
-          : i
-      ),
-    })),
+  createIntegration: async (input) => {
+    const integration = await window.missionConsole.createIntegration(input);
+    set((state) => ({ integrations: [...state.integrations, integration] }));
+    return integration;
+  },
+
+  updateIntegration: async (id, input) => {
+    const integration = await window.missionConsole.updateIntegration(id, input);
+    set((state) => ({
+      integrations: state.integrations.map((item) => (item.id === id ? integration : item)),
+    }));
+    return integration;
+  },
+
+  deleteIntegration: async (id) => {
+    const deleted = await window.missionConsole.deleteIntegration(id);
+    if (deleted) {
+      set((state) => ({ integrations: state.integrations.filter((item) => item.id !== id) }));
+    }
+    return deleted;
+  },
 
   addMaterial: async (folderId, m) => {
     const material = await window.missionConsole.addMaterial(folderId, m);

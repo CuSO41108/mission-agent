@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import {
   KeyRound,
   FolderOpen,
   HeartPulse,
   Monitor,
-  Mail,
+  Plug,
+  Settings2,
   CheckCircle2,
   Loader2,
   AlertCircle,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
+import { useMissionStore } from "@/store/useMissionStore";
 import type {
   AppConfig,
 } from "@core/config";
@@ -26,6 +29,7 @@ type TestStatus = "idle" | "testing" | "success" | "error";
 
 export default function Settings() {
   const { locale, setLocale, theme, setTheme, text: t } = usePreferences();
+  const integrations = useMissionStore((state) => state.integrations);
   const [config, setConfigState] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -357,60 +361,31 @@ export default function Settings() {
           </Field>
         </Section>
 
-        {/* 5. 接口凭据（占位，Phase 6/7 接入） */}
-        <Section icon={Mail} title={t("接口凭据", "Integration credentials")} desc={t("邮件 / 飞书（Phase 6/7 接入）", "Email / Feishu (Phase 6/7)")} code="EXT">
-          <Field label={t("邮箱地址", "Email address")}>
-            <input
-              type="email"
-              value={config?.integrations.email.address ?? ""}
-              onChange={(e) =>
-                savePartial({
-                  integrations: {
-                    ...config!.integrations,
-                    email: { ...config!.integrations.email, address: e.target.value },
-                  },
-                })
-              }
-              placeholder="you@example.com"
-              className="input"
-            />
-          </Field>
+        {/* 5. 适配器配置入口 */}
+        <Section
+          icon={Plug}
+          title={t("适配器配置", "Adapter configuration")}
+          desc={t("地址、认证方式与系统安全凭据", "Endpoints, authentication, and system-secured credentials")}
+          code="EXT"
+        >
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t("IMAP 主机", "IMAP host")}>
-              <input
-                type="text"
-                value={config?.integrations.email.imapHost ?? ""}
-                onChange={(e) =>
-                  savePartial({
-                    integrations: {
-                      ...config!.integrations,
-                      email: { ...config!.integrations.email, imapHost: e.target.value },
-                    },
-                  })
-                }
-                placeholder="imap.gmail.com"
-                className="input"
-              />
-            </Field>
-            <Field label={t("IMAP 端口", "IMAP port")}>
-              <input
-                type="number"
-                value={config?.integrations.email.imapPort ?? 993}
-                onChange={(e) =>
-                  savePartial({
-                    integrations: {
-                      ...config!.integrations,
-                      email: { ...config!.integrations.email, imapPort: Number(e.target.value) },
-                    },
-                  })
-                }
-                className="input"
-              />
-            </Field>
+            <div className="border border-white/8 px-3 py-2.5">
+              <p className="text-[9px] data-mono text-ink-faint uppercase">{t("已注册", "Registered")}</p>
+              <p className="mt-1 font-display text-lg text-ink">{integrations.length}</p>
+            </div>
+            <div className="border border-white/8 px-3 py-2.5">
+              <p className="text-[9px] data-mono text-ink-faint uppercase">{t("运行状态", "Runtime")}</p>
+              <p className="mt-1 text-[11px] text-amber-400">NOT CONNECTED</p>
+            </div>
           </div>
-          <p className="text-[11px] text-ink-faint">
-            {t("接口接入在 Phase 6（邮件 IMAP）/ Phase 7（飞书）实现，此处仅保存凭据。", "Integrations arrive in Phase 6 (email IMAP) and Phase 7 (Feishu); this section stores credentials only.")}
-          </p>
+          <div className="flex items-center justify-between gap-4 pt-1">
+            <p className="text-[11px] text-ink-faint leading-relaxed">
+              {t("每个适配器独立保存配置；真实连接与同步运行时尚未启用。", "Each adapter keeps its own configuration; connection and sync runtimes are not enabled yet.")}
+            </p>
+            <Link to="/integrations" className="btn-ghost shrink-0">
+              <Settings2 className="w-3 h-3" /> {t("管理适配器", "Manage adapters")}
+            </Link>
+          </div>
         </Section>
 
         <div className="h-8" />
