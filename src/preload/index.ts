@@ -17,6 +17,7 @@ import type {
   CreateFolderInput,
   CreateTodoInput,
   UpdateAgentConfigInput,
+  UpsertIntegrationInput,
   FolderStatus,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
@@ -49,6 +50,12 @@ const api = {
   deleteFolder: (folderId: string) =>
     ipcRenderer.invoke("folder:delete", folderId) as Promise<boolean>,
   getIntegrations: () => ipcRenderer.invoke("integration:list") as Promise<IntegrationAdapter[]>,
+  createIntegration: (input: UpsertIntegrationInput) =>
+    ipcRenderer.invoke("integration:create", input) as Promise<IntegrationAdapter>,
+  updateIntegration: (id: string, input: UpsertIntegrationInput) =>
+    ipcRenderer.invoke("integration:update", id, input) as Promise<IntegrationAdapter>,
+  deleteIntegration: (id: string) =>
+    ipcRenderer.invoke("integration:delete", id) as Promise<boolean>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
 
   // ============ 写操作（Phase 5） ============

@@ -3,8 +3,8 @@
 // 之后每次启动只 migrate，不会重复 seed，保证用户数据不被覆盖
 
 import { getDb } from "./client";
-import { mockFolders, mockIntegrations, mockWorkflows } from "../../renderer/data/mock";
-import type { TaskFolder, IntegrationAdapter, WorkflowRule } from "../../renderer/types";
+import { mockFolders, mockWorkflows } from "../../renderer/data/mock";
+import type { TaskFolder, WorkflowRule } from "../../renderer/types";
 
 /**
  * 执行种子数据写入
@@ -33,10 +33,6 @@ export function seedDatabase(): void {
         insertTimeline(entry);
       }
       insertAgentConfig(folder.id, folder.agentConfig);
-    }
-
-    for (const integration of mockIntegrations) {
-      insertIntegration(integration);
     }
 
     for (const workflow of mockWorkflows) {
@@ -148,24 +144,6 @@ function insertAgentConfig(
     config.strategy,
     JSON.stringify(config.permissions),
     config.lastAction,
-  );
-}
-
-function insertIntegration(integration: IntegrationAdapter): void {
-  const db = getDb();
-  db.prepare(
-    `INSERT OR IGNORE INTO integrations
-      (id, type, name, description, status, last_sync, events_today, config)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    integration.id,
-    integration.type,
-    integration.name,
-    integration.description,
-    integration.status,
-    integration.lastSync,
-    integration.eventsToday,
-    null, // config 字段留空，等用户在设置页配置
   );
 }
 

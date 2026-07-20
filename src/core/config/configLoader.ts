@@ -65,7 +65,21 @@ export function saveConfig(configPath: string, config: AppConfig): void {
  */
 export function initConfigFile(configPath: string): AppConfig {
   if (fs.existsSync(configPath)) {
-    return loadConfig(configPath);
+    const config = loadConfig(configPath);
+    try {
+      const parsed = yamlLoad(fs.readFileSync(configPath, "utf-8"));
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        Object.prototype.hasOwnProperty.call(parsed, "integrations")
+      ) {
+        saveConfig(configPath, config);
+        console.log(`[config] 已移除旧版接口凭据配置 ${configPath}`);
+      }
+    } catch {
+      // loadConfig 已记录解析错误；避免用默认值覆盖无法解析的用户文件。
+    }
+    return config;
   }
   saveConfig(configPath, DEFAULT_CONFIG);
   console.log(`[config] 首次启动，已创建默认配置 ${configPath}`);

@@ -11,7 +11,6 @@ export {
   type AgentConfig,
   type SystemConfig,
   type StorageConfig,
-  type IntegrationsConfig,
 } from "./defaultConfig";
 export { loadConfig, saveConfig, initConfigFile } from "./configLoader";
 export {

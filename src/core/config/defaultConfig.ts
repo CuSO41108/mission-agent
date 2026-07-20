@@ -19,7 +19,7 @@ export interface DeepSeekConfig {
  * Agent 心跳调度配置
  */
 export interface AgentConfig {
-  /** 心跳间隔（分钟），项目初期节流默认 30 */
+  /** 心跳间隔（分钟），默认 60，允许在设置页调整 */
   heartbeatIntervalMin: number;
   /** 全局开关，关闭后所有心跳停止 */
   enabled: boolean;
@@ -46,25 +46,6 @@ export interface StorageConfig {
 }
 
 /**
- * 接口凭据配置（Phase 6/7 接入）
- */
-export interface IntegrationsConfig {
-  email: {
-    provider: "gmail" | "outlook" | "imap" | "";
-    address: string;
-    /** IMAP 凭据或 OAuth token */
-    imapHost: string;
-    imapPort: number;
-    imapUser: string;
-    imapPass: string;
-  };
-  feishu: {
-    appId: string;
-    appSecret: string;
-  };
-}
-
-/**
  * 完整应用配置
  */
 export interface AppConfig {
@@ -72,7 +53,6 @@ export interface AppConfig {
   agent: AgentConfig;
   system: SystemConfig;
   storage: StorageConfig;
-  integrations: IntegrationsConfig;
 }
 
 /** 心跳默认每 60 分钟运行，允许用户在 5 分钟到 24 小时之间调整。 */
@@ -113,20 +93,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     // 用户应该在设置页改成自己的路径
     vaultDir: "",
   },
-  integrations: {
-    email: {
-      provider: "",
-      address: "",
-      imapHost: "",
-      imapPort: 993,
-      imapUser: "",
-      imapPass: "",
-    },
-    feishu: {
-      appId: "",
-      appSecret: "",
-    },
-  },
 };
 
 /**
@@ -149,9 +115,5 @@ export function mergeConfig(base: AppConfig, partial: Partial<AppConfig>): AppCo
     },
     system: { ...base.system, ...partial.system },
     storage: { ...base.storage, ...partial.storage },
-    integrations: {
-      email: { ...base.integrations.email, ...partial.integrations?.email },
-      feishu: { ...base.integrations.feishu, ...partial.integrations?.feishu },
-    },
   };
 }

@@ -3,11 +3,22 @@
  * 负责：窗口/托盘/全局快捷键/生命周期/IPC 注册
  * 业务逻辑全部下沉到 src/core/
  */
-import { app, BrowserWindow, Tray, Menu, dialog, globalShortcut, nativeImage, shell, ipcMain } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  dialog,
+  globalShortcut,
+  nativeImage,
+  safeStorage,
+  shell,
+  ipcMain,
+} from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { TaskFolder } from "../renderer/types";
+import type { TaskFolder, UpsertIntegrationInput } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
 import { seedDatabase } from "../core/db/seed";
@@ -18,6 +29,9 @@ import {
   getAllFoldersWithDetails,
   getFolderDetail,
   getAllIntegrations,
+  createIntegration,
+  updateIntegration,
+  deleteIntegration,
   getAllWorkflows,
   createFolder,
   createTodo,
@@ -58,6 +72,25 @@ let registeredShortcut: string | null = null;
 let isQuitting = false;
 // 应用配置（启动时加载，IPC 更新时同步到内存 + 磁盘）
 let appConfig: AppConfig | null = null;
+
+function protectIntegrationSecrets(input: UpsertIntegrationInput): UpsertIntegrationInput {
+  const secrets = input.secrets;
+  if (!secrets) return input;
+  const protectedSecrets: UpsertIntegrationInput["secrets"] = {};
+  for (const [key, value] of Object.entries(secrets)) {
+    if (value === null) {
+      protectedSecrets[key as keyof NonNullable<UpsertIntegrationInput["secrets"]>] = null;
+      continue;
+    }
+    if (!value.trim()) continue;
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error("系统安全存储暂不可用，凭据未保存");
+    }
+    protectedSecrets[key as keyof NonNullable<UpsertIntegrationInput["secrets"]>] =
+      safeStorage.encryptString(value).toString("base64");
+  }
+  return { ...input, secrets: protectedSecrets };
+}
 
 // ============ 应用标识 ============
 app.setName(PRODUCT_NAME);
@@ -258,6 +291,13 @@ function registerIpc(): void {
 
   // 接口适配器
   ipcMain.handle("integration:list", () => getAllIntegrations());
+  ipcMain.handle("integration:create", (_e, input: UpsertIntegrationInput) =>
+    createIntegration(protectIntegrationSecrets(input)),
+  );
+  ipcMain.handle("integration:update", (_e, id: string, input: UpsertIntegrationInput) =>
+    updateIntegration(id, protectIntegrationSecrets(input)),
+  );
+  ipcMain.handle("integration:delete", (_e, id: string) => deleteIntegration(id));
 
   // 工作流
   ipcMain.handle("workflow:list", () => getAllWorkflows());

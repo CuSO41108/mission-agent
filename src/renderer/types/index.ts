@@ -98,6 +98,27 @@ export type IntegrationType =
   | "chat"
   | "custom";
 export type IntegrationStatus = "connected" | "disconnected" | "error" | "beta";
+export type IntegrationAuthType = "none" | "api_key" | "oauth2" | "basic" | "webhook";
+export type IntegrationSecretKey =
+  | "apiKey"
+  | "clientId"
+  | "clientSecret"
+  | "username"
+  | "password"
+  | "token";
+
+export interface IntegrationConnectionConfig {
+  provider: string;
+  account: string;
+  endpoint: string;
+  imapHost: string;
+  imapPort: number | null;
+  smtpHost: string;
+  smtpPort: number | null;
+  webhookUrl: string;
+  authType: IntegrationAuthType;
+  secretConfigured: Record<IntegrationSecretKey, boolean>;
+}
 
 export interface IntegrationAdapter {
   id: string;
@@ -107,6 +128,16 @@ export interface IntegrationAdapter {
   status: IntegrationStatus;
   lastSync: number | null;
   eventsToday: number;
+  config: IntegrationConnectionConfig;
+}
+
+export interface UpsertIntegrationInput {
+  name: string;
+  type: IntegrationType;
+  description: string;
+  config: Omit<IntegrationConnectionConfig, "secretConfigured">;
+  /** null 清除已有凭据；空字符串或缺省表示保持不变。 */
+  secrets?: Partial<Record<IntegrationSecretKey, string | null>>;
 }
 
 export interface WorkflowRule {

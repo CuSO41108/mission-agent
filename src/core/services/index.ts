@@ -3,7 +3,13 @@ export {
   getFolderDetail,
   getAllFoldersWithDetails,
 } from "./folderService";
-export { getAllIntegrations, getIntegrationById } from "./integrationService";
+export {
+  createIntegration,
+  deleteIntegration,
+  getAllIntegrations,
+  getIntegrationById,
+  updateIntegration,
+} from "./integrationService";
 export { getAllWorkflows, getWorkflowById } from "./workflowService";
 
 // Phase 5：写操作

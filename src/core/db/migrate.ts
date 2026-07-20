@@ -51,6 +51,16 @@ export function migrateDatabase(): void {
       db.exec(sql);
     }
 
+    if (currentVersion < 2) {
+      db.exec(`
+        DELETE FROM integrations
+        WHERE id IN (
+          'int-email', 'int-feishu', 'int-calendar', 'int-wechat',
+          'int-slack', 'int-xhs', 'int-notion', 'int-telegram'
+        );
+      `);
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",
