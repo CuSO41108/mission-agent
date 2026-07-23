@@ -104,7 +104,7 @@ export default function Dashboard() {
           </div>
 
           {hero && (
-            <div className="h-[180px]">
+            <div className="min-h-[210px]">
               <FocusCard folder={hero} variant="hero" />
             </div>
           )}
@@ -128,7 +128,7 @@ export default function Dashboard() {
           )}
 
           {minis.length > 0 && (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               {minis.map((f) => (
                 <div key={f.id} className="h-[150px]">
                   <FocusCard folder={f} variant="mini" />
@@ -155,7 +155,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2 mb-1">
                   <Gauge className="w-3.5 h-3.5 text-phosphor-400" strokeWidth={1.5} />
                   <h3 className="font-display text-[11px] font-semibold text-ink">
-                    {t("全局进度", "Overall progress")}
+                    {t("全部任务舱待办进度", "Todo progress across folders")}
                   </h3>
                 </div>
                 <div className="flex items-baseline gap-2 mb-3">
@@ -167,6 +167,9 @@ export default function Dashboard() {
                     {doneTodos}/{totalTodos} TODOS
                   </span>
                 </div>
+                <p className="text-[9px] leading-relaxed text-ink-faint mb-2">
+                  {t("按所有未归档任务舱的待办计算，不代表 Agent 正在运行。", "Calculated from todos in all unarchived folders; it does not indicate that an Agent is running.")}
+                </p>
                 <div className="space-y-1">
                   {activeFolders.slice(0, 4).map((f) => (
                     <Link
