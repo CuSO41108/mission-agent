@@ -13,36 +13,75 @@
 
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
 
-// require("electron") 在 npm 包里返回 Electron 可执行文件路径
-let electronPath;
-try {
-  electronPath = require("electron");
-} catch (err) {
-  console.error("[mission-console] 启动失败：找不到 electron 可执行文件");
-  console.error("");
-  console.error("请确认已运行 npm install 安装依赖");
-  console.error("");
-  console.error("原始错误：" + err.message);
-  process.exit(1);
+const packagePath = path.resolve(__dirname, "..");
+
+function updateClient() {
+  return require("./update-client.cjs");
 }
 
-const appEntry = path.join(__dirname, "..", "out", "main", "index.js");
+async function runUpdate() {
+  const client = updateClient();
+  const result = await client.checkForUpdate({ currentVersion: client.currentVersion() });
+  if (result.error) throw new Error(`检查更新失败：${result.error}`);
+  if (!result.updateAvailable) {
+    process.stdout.write(`Mission Console v${result.currentVersion} 已是最新版本。\n`);
+    return;
+  }
+  process.stdout.write(`${client.formatUpdateNotice(result)}\n\n正在安装更新，完成后会重新启动应用。\n`);
+  const child = spawn(process.execPath, [path.join(__dirname, "apply-update.cjs")], {
+    detached: false,
+    stdio: "inherit",
+    env: { ...process.env, MISSION_CONSOLE_NODE_PATH: process.execPath },
+  });
+  const exitCode = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+  if (exitCode !== 0) process.exitCode = exitCode;
+}
 
-const child = spawn(electronPath, [appEntry], {
-  detached: true,
-  stdio: "ignore",
-});
+async function main() {
+  const args = new Set(process.argv.slice(2));
+  const client = updateClient();
+  if (args.has("--version") || args.has("-v")) {
+    process.stdout.write(`${client.currentVersion()}\n`);
+    return;
+  }
+  if (args.has("--check-update")) {
+    const result = await client.checkForUpdate({ currentVersion: client.currentVersion(), force: true });
+    if (result.error) throw new Error(`检查更新失败：${result.error}`);
+    process.stdout.write(result.updateAvailable ? `${client.formatUpdateNotice(result)}\n` : `Mission Console v${result.currentVersion} 已是最新版本。\n`);
+    return;
+  }
+  if (args.has("--update")) {
+    await runUpdate();
+    return;
+  }
+  launchApp();
+}
 
-child.on("error", (error) => {
-  console.error("[mission-console] 启动失败：" + error.message);
-  console.error("");
-  console.error("请检查：");
-  console.error("  1. Node 版本 >= 22.13（当前：" + process.version + "）");
-  console.error("  2. 已运行 npm run build 构建产物");
-  console.error("  3. 未被其他实例占用");
+// require("electron") 在 npm 包里返回 Electron 可执行文件路径
+function launchApp() {
+  if (!fs.existsSync(path.join(packagePath, "out", "main", "index.js"))) {
+    throw new Error("找不到应用构建产物。请重新安装 Mission Console。");
+  }
+  const electronPath = require("electron");
+  const appEntry = path.join(packagePath, "out", "main", "index.js");
+  const child = spawn(electronPath, [appEntry], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, MISSION_CONSOLE_NODE_PATH: process.execPath, MISSION_CONSOLE_RELEASE_BUILD: "1" },
+  });
+  child.on("error", (error) => {
+    console.error("[mission-console] 启动失败：" + error.message);
+    process.exitCode = 1;
+  });
+  child.unref();
+}
+
+main().catch((error) => {
+  console.error(`[mission-console] ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
-
-// 子进程脱离父进程，shell 立即返回
-child.unref();

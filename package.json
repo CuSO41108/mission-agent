@@ -11,7 +11,9 @@
     "mission-console": "bin/mission-console.cjs"
   },
   "files": [
-    "out",
+    "out/main",
+    "out/preload",
+    "out/renderer",
     "bin",
     "assets"
   ],
@@ -28,10 +30,12 @@
     "preview": "electron-vite preview",
     "lint": "eslint .",
     "check": "tsc --noEmit",
-    "prepare": "electron-vite build"
+    "prepare": "electron-vite build",
+    "package:check": "node scripts/package-check.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "electron": "^42.0.0",
     "framer-motion": "^11.15.0",
     "js-yaml": "^5.2.1",
     "lucide-react": "^0.511.0",
@@ -52,7 +56,6 @@
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
     "babel-plugin-react-dev-locator": "^1.0.6",
-    "electron": "^42.0.0",
     "electron-vite": "^2.3.0",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",

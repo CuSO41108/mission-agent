@@ -1,0 +1,36 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set release version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+      - run: npm ci
+      - run: npm test
+      - run: npm run package:check
+      - name: Build release assets
+        run: |
+          mkdir release
+          PACKAGE=$(npm pack --pack-destination release | tail -1)
+          node scripts/create-release-assets.mjs "release/$PACKAGE" "${GITHUB_REF_NAME#v}" "$GITHUB_REPOSITORY" release
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/*.tgz release/*.sha256 release/update.json --generate-notes

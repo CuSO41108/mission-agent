@@ -16,6 +16,7 @@ import {
   Languages,
   Moon,
   Sun,
+  Download,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import type {
 } from "@core/config";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
+type UpdateStatus = "idle" | "checking" | "available" | "latest" | "error";
 
 export default function Settings() {
   const { locale, setLocale, theme, setTheme, text: t } = usePreferences();
@@ -43,6 +45,9 @@ export default function Settings() {
   const [draftMaxConcurrentRuns, setDraftMaxConcurrentRuns] = useState(2);
   const [draftShortcut, setDraftShortcut] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateMessage, setUpdateMessage] = useState("");
 
   // 加载配置
   useEffect(() => {
@@ -55,7 +60,33 @@ export default function Settings() {
       setDraftShortcut(cfg.system.globalShortcut);
       setLoading(false);
     });
+    void window.missionConsole.getVersion().then(setAppVersion);
   }, []);
+
+  async function checkForUpdate() {
+    setUpdateStatus("checking");
+    setUpdateMessage("");
+    const result = await window.missionConsole.checkForAppUpdate();
+    if (result.error) {
+      setUpdateStatus("error");
+      setUpdateMessage(result.error);
+    } else if (result.updateAvailable && result.manifest) {
+      setUpdateStatus("available");
+      const notes = [...(result.manifest.notes?.features ?? []), ...(result.manifest.notes?.fixes ?? [])];
+      setUpdateMessage(`${t("发现新版本", "New version available")} v${result.manifest.version}${notes.length ? ` · ${notes.join("；")}` : ""}`);
+    } else {
+      setUpdateStatus("latest");
+      setUpdateMessage(t("当前已是最新版本", "You are up to date"));
+    }
+  }
+
+  async function installUpdate() {
+    const result = await window.missionConsole.installAppUpdate();
+    if (!result.ok) {
+      setUpdateStatus("error");
+      setUpdateMessage(result.error);
+    }
+  }
 
   // 保存局部配置
   async function savePartial(partial: Partial<AppConfig>) {
@@ -414,6 +445,25 @@ export default function Settings() {
               <span className="text-[10px] text-ink-faint">{t("输入完成后手动应用；失败时保留旧快捷键。", "Apply after typing; failures keep the previous shortcut.")}</span>
             </div>
           </Field>
+        </Section>
+
+        <Section icon={Download} title={t("应用更新", "App updates")} desc={t("从 GitHub Release 安装已校验的最新版本", "Install verified releases from GitHub")} code="UPD">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[12px] text-ink">Mission Console {appVersion ? `v${appVersion}` : ""}</p>
+              <p className="text-[10px] text-ink-faint mt-0.5">{t("检查更新不会发送任务或配置数据。", "Update checks do not send task or configuration data.")}</p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={() => void checkForUpdate()} disabled={updateStatus === "checking"} className="btn-ghost">
+                {updateStatus === "checking" && <Loader2 className="w-3 h-3 animate-spin" />}
+                {t("检查更新", "Check for updates")}
+              </button>
+              {updateStatus === "available" && <button onClick={() => void installUpdate()} className="btn-phosphor">{t("立即更新", "Update now")}</button>}
+            </div>
+          </div>
+          {updateStatus !== "idle" && updateStatus !== "checking" && (
+            <p className={cn("text-[11px]", updateStatus === "error" ? "text-rose-300" : updateStatus === "available" ? "text-phosphor-300" : "text-jade")}>{updateMessage}</p>
+          )}
         </Section>
 
         {saveError && (
