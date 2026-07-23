@@ -11,6 +11,6 @@ export { MaterialRepository, mapMaterial } from "./materialRepository";
 export { TimelineRepository, mapTimeline } from "./timelineRepository";
 export { AgentConfigRepository, mapAgentConfig } from "./agentConfigRepository";
 export { IntegrationRepository, mapIntegration } from "./integrationRepository";
-export { WorkflowRepository, mapWorkflow } from "./workflowRepository";
+export { WorkflowRepository, WorkflowRunRepository, mapWorkflow } from "./workflowRepository";
 export { toBool, toNumberOrNull, parseJson } from "./base";
 export type { DbRow } from "./base";

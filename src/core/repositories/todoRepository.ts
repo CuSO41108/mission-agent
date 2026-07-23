@@ -1,7 +1,7 @@
 // Todo Repository · 待办 CRUD（支持父子嵌套）
 
 import { getDb } from "../db/client";
-import type { Todo, Assignee } from "../../renderer/types";
+import type { Todo, Assignee, AgentTaskType, ArtifactFormat } from "../../renderer/types";
 import { toBool, toNumberOrNull, type DbRow } from "./base";
 
 export function mapTodo(row: DbRow): Todo {
@@ -14,6 +14,9 @@ export function mapTodo(row: DbRow): Todo {
     assignee: String(row.assignee ?? "human") as Assignee,
     subtasks: [], // 由 Service 层组装父子关系
     source: row.source ? String(row.source) : undefined,
+    agentTaskType: String(row.agent_task_type ?? "analysis") as AgentTaskType,
+    artifactFormat: String(row.artifact_format ?? "markdown") as ArtifactFormat,
+    workflowId: row.workflow_id ? String(row.workflow_id) : null,
   };
 }
 
@@ -62,8 +65,9 @@ export const TodoRepository = {
     const db = getDb();
     db.prepare(
       `INSERT OR REPLACE INTO todos
-        (id, folder_id, parent_id, title, done, due_date, assignee, source, sort_order, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        (id, folder_id, parent_id, title, done, due_date, assignee, source,
+         agent_task_type, artifact_format, workflow_id, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
     ).run(
       todo.id,
       todo.folderId,
@@ -73,6 +77,9 @@ export const TodoRepository = {
       todo.dueDate,
       todo.assignee,
       todo.source ?? null,
+      todo.agentTaskType ?? "analysis",
+      todo.artifactFormat ?? "markdown",
+      todo.workflowId ?? null,
       0,
       Date.now(),
     );

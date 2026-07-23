@@ -7,7 +7,7 @@
  * 每次启动时 migrate 会比对 SCHEMA_VERSION 常量
  * 若低于当前版本，则执行新增的建表语句
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const CREATE_SCHEMA_VERSION_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS todos (
   due_date INTEGER,
   assignee TEXT CHECK(assignee IN ('human','agent')),
   source TEXT,
+  agent_task_type TEXT DEFAULT 'analysis',
+  artifact_format TEXT DEFAULT 'markdown',
+  workflow_id TEXT,
   sort_order INTEGER DEFAULT 0,
   created_at INTEGER,
   FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE CASCADE
@@ -106,6 +109,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
   enabled INTEGER DEFAULT 0,
   strategy TEXT,
   permissions TEXT,
+  workflow_id TEXT,
   last_action INTEGER,
   FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE CASCADE
 );
@@ -140,9 +144,28 @@ CREATE TABLE IF NOT EXISTS workflows (
   trigger TEXT,
   conditions TEXT,
   actions TEXT,
+  layout TEXT,
   runs INTEGER DEFAULT 0,
-  last_run INTEGER
+  last_run INTEGER,
+  last_status TEXT,
+  last_error TEXT
 );
+`;
+
+export const CREATE_WORKFLOW_RUNS_TABLE = `
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  trigger_type TEXT NOT NULL,
+  folder_id TEXT,
+  message TEXT,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER NOT NULL,
+  FOREIGN KEY(workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+  FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, started_at DESC);
 `;
 
 /**
@@ -174,5 +197,6 @@ export const ALL_SCHEMA_SQL: string[] = [
   CREATE_AGENT_CONFIGS_TABLE,
   CREATE_INTEGRATIONS_TABLE,
   CREATE_WORKFLOWS_TABLE,
+  CREATE_WORKFLOW_RUNS_TABLE,
   CREATE_SYNC_LOG_TABLE,
 ];

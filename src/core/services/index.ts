@@ -10,7 +10,14 @@ export {
   getIntegrationById,
   updateIntegration,
 } from "./integrationService";
-export { getAllWorkflows, getWorkflowById } from "./workflowService";
+export {
+  createWorkflow,
+  deleteWorkflow,
+  getAllWorkflows,
+  getWorkflowById,
+  getWorkflowRuns,
+  updateWorkflow,
+} from "./workflowService";
 
 // Phase 5：写操作
 export {

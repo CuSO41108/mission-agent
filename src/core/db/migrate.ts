@@ -61,6 +61,28 @@ export function migrateDatabase(): void {
       `);
     }
 
+    if (currentVersion < 3) {
+      const ensureColumn = (table: string, column: string, definition: string) => {
+        const columns = db.prepare(`PRAGMA table_info(${table});`).all() as Array<{ name: string }>;
+        if (!columns.some((item) => item.name === column)) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+        }
+      };
+      ensureColumn("todos", "agent_task_type", "TEXT DEFAULT 'analysis'");
+      ensureColumn("todos", "artifact_format", "TEXT DEFAULT 'markdown'");
+      ensureColumn("todos", "workflow_id", "TEXT");
+      ensureColumn("agent_configs", "workflow_id", "TEXT");
+      ensureColumn("workflows", "layout", "TEXT");
+      ensureColumn("workflows", "last_status", "TEXT");
+      ensureColumn("workflows", "last_error", "TEXT");
+      db.exec(`
+        UPDATE todos SET agent_task_type = 'analysis' WHERE agent_task_type IS NULL;
+        UPDATE todos SET artifact_format = 'markdown' WHERE artifact_format IS NULL;
+        DELETE FROM workflows WHERE id IN ('wf-001', 'wf-002', 'wf-003', 'wf-004');
+        UPDATE workflows SET runs = 0, last_run = NULL, last_status = NULL, last_error = NULL;
+      `);
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",

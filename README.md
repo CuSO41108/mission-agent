@@ -16,21 +16,22 @@
   <img src="./docs/screenshots/dashboard.png" alt="Mission Console 浅色生产力工作台概览" width="1000">
 </p>
 
-<p align="center"><sub>当前界面仍包含少量用于呈现布局的 Agent 活动与工作流演示数据。</sub></p>
-
-Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同一处管理待办、材料、时间线与 Agent 配置。定时调度器只扫描处于活动状态且已启用 Agent 的任务舱；配置 DeepSeek 后，可按设定间隔（默认每小时）或手动发起巡检，并把结果写回时间线。业务数据保存在本地 SQLite，应用配置保存在本地 YAML。界面采用冷中性灰白基底的现代生产力工作台风格，以克制的产品蓝、细描边、轻阴影和紧凑信息密度保证长时间使用的清晰度。
+Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同一处管理待办、材料、时间线与 Agent 配置。定时调度器只扫描处于活动状态且已启用 Agent 的任务舱；配置任意 OpenAI 兼容模型 API 后，可按设定间隔（默认每小时）或手动发起巡检，并把结果写回时间线。业务数据保存在本地 SQLite，普通应用配置保存在本地 YAML，模型 API Key 由 Electron `safeStorage` 加密保存。界面采用冷中性灰白基底的现代生产力工作台风格，以克制的产品蓝、细描边、轻阴影和紧凑信息密度保证长时间使用的清晰度。
 
 ## ✨ Features
 
 - **任务舱架构** — 每类任务一个舱，集中管理待办、材料、时间线、Agent 配置
 - **本地材料管理** — 通过系统文件选择器添加引用，可打开或移除引用，不删除磁盘原文件
 - **Agent 定时巡检** — 默认每 60 分钟执行，支持 5–1440 分钟调整、手动触发、超时取消与运行事件推送
-- **DeepSeek 接入** — 使用 OpenAI 兼容协议；执行 Agent 时会把当前任务舱必要上下文发送给所配置的模型 API
+- **类型化 Agent 待办** — 分析、生成产物、跟进提醒、材料整理、进度摘要与工作流任务分开执行；只有明确选择产物任务才写文件
+- **多种本地产物** — Markdown 为推荐默认格式，同时支持纯文本与 JSON；分析型待办不会自动生成文件或标记完成
+- **OpenAI 兼容模型** — DeepSeek 只是默认配置示例，Base URL 与模型名均可更换为其他兼容服务
+- **可执行工作流** — 支持创建、编辑、删除、启停、手动/定时/事件触发、拖拽节点、条件判断、运行记录与循环保护
 - **适配器注册表** — 可维护服务商、地址、端口与认证信息；敏感字段由 Electron `safeStorage` 加密后落库
 - **本地优先** — 业务数据存 `node:sqlite`，应用配置存 YAML，本地文件默认采用引用模式
 - **浅色生产力界面** — 冷灰白中性基底 + 克制产品蓝，细描边与轻阴影，全局快捷键唤起，托盘常驻
 
-> 当前适配器仅完成本地注册和配置管理，Gmail、飞书、Slack 等第三方连接运行时尚未接入；工作流页面目前是规则管理与编排界面，执行引擎仍在开发中。
+> 当前适配器仅完成本地注册和配置管理，Gmail、飞书、Webhook 等第三方连接运行时尚未接入，因此不会作为可执行工作流节点出现。
 
 ## 🖼 Screenshots
 
@@ -52,7 +53,7 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
   <img src="./docs/screenshots/workflow.png" alt="工作流规则视图与编排画布" width="1000">
 </p>
 
-<p align="center"><sub>工作流执行器和可拖拽节点编辑仍处于开发阶段。</sub></p>
+<p align="center"><sub>当前 V1 提供本地触发器、条件和动作；第三方节点将在对应运行时接入后开放。</sub></p>
 
 ### Agent 控制台
 
@@ -60,7 +61,7 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
   <img src="./docs/screenshots/agents.png" alt="Agent 状态与运行事件审计" width="1000">
 </p>
 
-<p align="center"><sub>当前实际执行模型为任务舱内的单舱 Agent；列表统计和部分审计内容仍含演示数据。</sub></p>
+<p align="center"><sub>Agent 执行结果会通过主进程事件通知渲染层重新读取 SQLite，数据库是唯一业务真相。</sub></p>
 
 ## 🚀 Quickstart
 
@@ -91,12 +92,12 @@ mission-console
 ### 首次配置
 
 1. 托盘右键 → 打开设置
-2. **DeepSeek 配置**：填入 API key → 点"测试连接"验证
+2. **模型配置**：填写 OpenAI 兼容 API 的 Base URL、模型名与 API Key；DeepSeek 是默认示例，不是必选项
 3. **心跳调度**：调整间隔（默认 60 分钟，可设为 5–1440 分钟）→ 开启全局开关
 4. **仓库目录**：设置文件归档目录（可选，默认引用模式不复制）
 5. **适配器配置**：按需登记服务地址和认证信息；当前仅保存配置，不会连接第三方服务
 
-DeepSeek API key 当前保存在本机 `userData/config.yaml`。运行 Agent 时，任务舱名称、状态、待办及材料名称等必要上下文会发送到所配置的模型服务，请根据数据敏感度决定是否启用。
+模型 API Key 会从旧版 YAML 自动迁移至 Electron `safeStorage` 加密文件，渲染进程只能看到“已配置”状态，无法读取完整 Key。设置页留空表示保留现有 Key，只有输入新值才会覆盖。点击“测试连接”会产生一次真实 API 请求；运行 Agent 时，启用“读取”权限的任务舱上下文及任务需要的本地文本材料会发送到所配置的模型服务，请根据数据敏感度决定是否启用。
 
 ## 🧱 Architecture
 
@@ -105,20 +106,22 @@ flowchart LR
   Renderer[渲染进程 React] -->|IPC| Main[主进程 Node 22+]
   Main --> Core[业务大脑 core]
   Core --> SQLite[(node:sqlite)]
-  Core --> DeepSeek[DeepSeek API]
-  Main --> Scheduler[心跳 cron]
+  Core --> Model[OpenAI 兼容模型 API]
+  Main --> Scheduler[可配置心跳调度器]
+  Main --> Workflow[工作流运行时]
   Main --> SafeStorage[系统安全存储]
   Scheduler --> Core
-  SafeStorage --> SQLite
+  SafeStorage --> Secrets[加密凭据文件]
+  Workflow --> Core
 ```
 
 - **四段式目录**：`src/main`（Electron 生命周期与 IPC）/ `src/preload`（contextBridge 白名单）/ `src/renderer`（React UI）/ `src/core`（业务与数据层）
 - **IPC 双通道**：`ipcMain.handle` 做 CRUD + `webContents.send` 做事件推送
-- **数据层**：`node:sqlite` 嵌入式 SQLite，8 张业务表 + `schema_version`
-- **配置层**：通用应用配置存入 `userData/config.yaml`；适配器敏感字段经系统安全存储加密后写入 SQLite
-- **调度层**：`node-cron` 心跳 + 防重入 + 请求超时；仅执行 `active + Agent enabled` 的任务舱
+- **数据层**：`node:sqlite` 嵌入式 SQLite，9 张业务表 + `schema_version`
+- **配置层**：普通应用配置存入 `userData/config.yaml`；模型 Key 与适配器敏感字段先经系统安全存储加密，渲染层只获取配置状态
+- **调度层**：按分钟间隔递归调度 + 全局防重入 + 请求超时；仅执行 `active + Agent enabled` 的任务舱
 - **适配器层**：本地注册、编辑、删除和凭据状态已完成；各服务商运行时待后续实现
-- **工作流层**：规则持久化与页面展示已存在，节点编排和实际执行尚未完成
+- **工作流层**：独立事件总线与定时轮询驱动本地节点，支持修改任务舱状态、创建待办、运行 Agent、写时间线和应用内通知
 
 详细架构图、Schema、IPC 链路见 [TechnicalArchitecture.md](.trae/documents/TechnicalArchitecture.md)
 
@@ -133,8 +136,8 @@ src/
     ├── db/        # node:sqlite + Schema + 迁移 + Repository
     ├── config/    # AppConfig + YAML 读写
     ├── services/  # 任务舱、材料、适配器等业务服务
-    ├── agent/     # DeepSeek 客户端 + 单舱 Agent 执行器（prompt → timeline）
-    └── workflow/  # 心跳巡检策略（active + enabled）
+    ├── agent/     # OpenAI 兼容客户端 + 类型化单舱 Agent 执行器
+    └── workflow/  # 工作流引擎、事件总线与心跳巡检策略
 ```
 
 ## 📄 License

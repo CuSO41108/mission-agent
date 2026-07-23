@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import type { Assignee, Todo } from "@/types";
+import type { AgentTaskType, ArtifactFormat, Assignee, Todo } from "@/types";
 import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -26,16 +26,24 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
   const { text: translate } = usePreferences();
   const toggle = useMissionStore((s) => s.toggleTodo);
   const createTodo = useMissionStore((s) => s.createTodo);
+  const workflows = useMissionStore((s) => s.workflows);
   const [expanded, setExpanded] = useState<Set<string>>(new Set([todos[0]?.id]));
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [assignee, setAssignee] = useState<Assignee>("human");
+  const [agentTaskType, setAgentTaskType] = useState<AgentTaskType>("analysis");
+  const [artifactFormat, setArtifactFormat] = useState<ArtifactFormat>("markdown");
+  const [workflowId, setWorkflowId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const submitTodo = async () => {
     if (!title.trim() || saving) return;
+    if (assignee === "agent" && agentTaskType === "workflow" && !workflowId) {
+      setError(translate("请先选择工作流", "Select a workflow first"));
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -43,10 +51,16 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
         title,
         dueDate: dueDate ? new Date(dueDate).getTime() : null,
         assignee,
+        agentTaskType: assignee === "agent" ? agentTaskType : undefined,
+        artifactFormat: assignee === "agent" ? artifactFormat : undefined,
+        workflowId: assignee === "agent" && agentTaskType === "workflow" ? workflowId || null : null,
       });
       setTitle("");
       setDueDate("");
       setAssignee("human");
+      setAgentTaskType("analysis");
+      setArtifactFormat("markdown");
+      setWorkflowId("");
       setAdding(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -191,6 +205,36 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                 title={translate("截止时间（可选）", "Deadline (optional)")}
               />
             </div>
+            {assignee === "agent" && (
+              <div className="grid grid-cols-2 gap-2">
+                <select value={agentTaskType} onChange={(event) => setAgentTaskType(event.target.value as AgentTaskType)} className="input w-full">
+                  <option value="analysis">{translate("分析建议（不自动完成）", "Analysis (does not auto-complete)")}</option>
+                  <option value="artifact">{translate("生成本地产物", "Create local artifact")}</option>
+                  <option value="follow_up">{translate("应用内跟进提醒", "In-app follow-up")}</option>
+                  <option value="material_organize">{translate("整理本地材料", "Organize local materials")}</option>
+                  <option value="progress_summary">{translate("生成进度摘要", "Create progress summary")}</option>
+                  <option value="workflow">{translate("执行工作流", "Run workflow")}</option>
+                </select>
+                {(["artifact", "material_organize", "progress_summary"] as AgentTaskType[]).includes(agentTaskType) && (
+                  <select value={artifactFormat} onChange={(event) => setArtifactFormat(event.target.value as ArtifactFormat)} className="input w-full">
+                    <option value="markdown">Markdown（{translate("推荐", "recommended")}）</option>
+                    <option value="text">{translate("纯文本", "Plain text")}</option>
+                    <option value="json">JSON</option>
+                  </select>
+                )}
+                {agentTaskType === "workflow" && (
+                  <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)} className="input w-full">
+                    <option value="">{translate("选择工作流", "Select workflow")}</option>
+                    {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+                  </select>
+                )}
+              </div>
+            )}
+            {assignee === "agent" && (
+              <p className="text-[9px] text-ink-faint">
+                {translate("Markdown 只是默认推荐格式；只有“生成产物/整理材料/进度摘要”会写文件。", "Markdown is only the recommended default; only artifact tasks write files.")}
+              </p>
+            )}
             {error && <p className="text-[10px] text-coral">{error}</p>}
             <div className="flex justify-end gap-2">
               <button

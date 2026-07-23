@@ -28,6 +28,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
   const toggleAgent = useMissionStore((s) => s.toggleAgent);
   const updateAgentConfig = useMissionStore((s) => s.updateAgentConfig);
   const runAgentOnce = useMissionStore((s) => s.runAgentOnce);
+  const workflows = useMissionStore((s) => s.workflows);
   const [running, setRunning] = useState(false);
   const [runMessage, setRunMessage] = useState("");
 
@@ -45,9 +46,9 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
     }
   };
   const strategies: { key: AgentConfig["strategy"]; label: string; desc: string }[] = [
-    { key: "follow_up", label: t("跟进催办", "Follow up"), desc: t("在截止前主动提醒并推进", "Remind and move work forward before deadlines.") },
-    { key: "material_collect", label: t("材料归集", "Collect materials"), desc: t("从接口拉取相关材料入库", "Collect related material from integrations.") },
-    { key: "progress_sync", label: t("进度同步", "Sync progress"), desc: t("定期同步进度至接口", "Sync progress to integrations on a schedule.") },
+    { key: "follow_up", label: t("跟进提醒", "Follow up"), desc: t("检查截止风险；开启通知权限后发送应用内提醒", "Check deadline risks and optionally notify inside the app.") },
+    { key: "material_collect", label: t("材料检查", "Check materials"), desc: t("仅检查当前已挂载的本地材料与缺口", "Inspect attached local materials and identify gaps.") },
+    { key: "progress_sync", label: t("进度摘要", "Progress summary"), desc: t("基于本地待办生成进度摘要，不向第三方发送", "Summarize local progress without external delivery.") },
     { key: "custom", label: t("自定义", "Custom"), desc: t("按工作流规则执行", "Run according to workflow rules.") },
   ];
   const permissions = [
@@ -78,6 +79,17 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
               <span className="absolute inset-0 bg-scanline opacity-20 animate-flicker" />
             )}
           </div>
+          {config.strategy === "custom" && (
+            <select
+              className="input w-full mt-2"
+              disabled={!config.enabled}
+              value={config.workflowId ?? ""}
+              onChange={(event) => void updateAgentConfig(folderId, { workflowId: event.target.value || null })}
+            >
+              <option value="">{t("选择工作流", "Select workflow")}</option>
+              {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+            </select>
+          )}
           <div>
             <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink leading-none">
               {t("Agent 托管", "Agent control")}
@@ -213,15 +225,7 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
           <div className="px-3 py-2 border border-white/5 bg-obsidian-950/40">
             {config.lastAction ? (
               <>
-                <p className="text-[11px] text-ink leading-snug">
-                  {config.strategy === "follow_up"
-                    ? t("已发送跟进提醒，等待响应", "A follow-up reminder was sent; awaiting a response.")
-                    : config.strategy === "material_collect"
-                      ? t("已从邮件接口归集 2 份材料", "Collected 2 materials from the email integration.")
-                      : config.strategy === "progress_sync"
-                        ? t("已同步进度至飞书群", "Progress was synced to the Feishu group.")
-                        : t("已执行自定义规则", "Custom rule completed.")}
-                </p>
+                <p className="text-[11px] text-ink leading-snug">{t("Agent 最近一次成功执行已写入时间线", "The latest successful Agent run is recorded in the timeline")}</p>
                 <p className="text-[9px] data-mono text-ink-faint mt-1">
                   {relativeTime(config.lastAction, locale)}
                 </p>

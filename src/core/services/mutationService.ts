@@ -11,6 +11,7 @@ import { WorkflowRepository } from "../repositories/workflowRepository";
 import { TimelineRepository } from "../repositories/timelineRepository";
 import { getDb } from "../db/client";
 import { getFolderDetail } from "./folderService";
+import { emitWorkflowEvent } from "../workflow/events";
 import type {
   CreateFolderInput,
   CreateTodoInput,
@@ -81,6 +82,7 @@ export function createFolder(input: CreateFolderInput): TaskFolder {
       strategy: "follow_up",
       permissions: { read: true, write: false, notify: false, create_subtask: false },
       lastAction: null,
+      workflowId: null,
     },
   };
 
@@ -121,18 +123,32 @@ export function deleteFolder(folderId: string): boolean {
 export function setFolderStatus(
   folderId: string,
   status: FolderStatus,
+  actor: "human" | "agent" | "system" = "human",
 ): TaskFolder | null {
   FolderRepository.updateStatus(folderId, status);
   if (status === "done") {
     FolderRepository.updateProgress(folderId, 100);
   }
-  logTimeline(folderId, "human", `状态变更为 ${status}`, { status });
-  return FolderRepository.findById(folderId);
+  logTimeline(folderId, actor, `状态变更为 ${status}`, { status });
+  const updated = FolderRepository.findById(folderId);
+  if (updated) {
+    emitWorkflowEvent({
+      type: "folder_status_changed",
+      folderId,
+      status,
+      timestamp: Date.now(),
+    });
+  }
+  return updated;
 }
 
 // ============ Todo 写操作 ============
 
-export function createTodo(folderId: string, input: CreateTodoInput): TaskFolder {
+export function createTodo(
+  folderId: string,
+  input: CreateTodoInput,
+  actor: "human" | "agent" | "system" = "human",
+): TaskFolder {
   const folder = FolderRepository.findById(folderId);
   if (!folder) throw new Error("任务舱不存在");
   if (folder.status === "archived") throw new Error("已归档任务舱不能添加待办");
@@ -163,6 +179,9 @@ export function createTodo(folderId: string, input: CreateTodoInput): TaskFolder
     assignee: input.assignee,
     subtasks: [],
     source: input.source?.trim() || undefined,
+    agentTaskType: input.assignee === "agent" ? input.agentTaskType ?? "analysis" : undefined,
+    artifactFormat: input.assignee === "agent" ? input.artifactFormat ?? "markdown" : undefined,
+    workflowId: input.assignee === "agent" ? input.workflowId ?? null : null,
   };
   const db = getDb();
   db.exec("BEGIN;");
@@ -172,7 +191,7 @@ export function createTodo(folderId: string, input: CreateTodoInput): TaskFolder
     const doneCount = todos.filter((item) => item.done).length;
     const progress = Math.round((doneCount / Math.max(todos.length, 1)) * 100);
     FolderRepository.updateProgress(folderId, progress);
-    logTimeline(folderId, "human", `添加待办：${title}`, {
+    logTimeline(folderId, actor, `添加待办：${title}`, {
       todoId: todo.id,
       assignee: todo.assignee,
       parentId,
@@ -184,6 +203,14 @@ export function createTodo(folderId: string, input: CreateTodoInput): TaskFolder
   }
   const updated = getFolderDetail(folderId);
   if (!updated) throw new Error("添加待办后读取任务舱失败");
+  emitWorkflowEvent({
+    type: "todo_created",
+    folderId,
+    todoId: todo.id,
+    text: todo.title,
+    assignee: todo.assignee,
+    timestamp: Date.now(),
+  });
   return updated;
 }
 
@@ -216,6 +243,17 @@ export function toggleTodo(folderId: string, todoId: string, done: boolean): Tas
   }
   const updated = getFolderDetail(folderId);
   if (!updated) throw new Error("更新待办后读取任务舱失败");
+  if (done) {
+    const todo = TodoRepository.findById(todoId);
+    emitWorkflowEvent({
+      type: "todo_completed",
+      folderId,
+      todoId,
+      text: todo?.title,
+      assignee: todo?.assignee,
+      timestamp: Date.now(),
+    });
+  }
   return updated;
 }
 
@@ -238,6 +276,13 @@ export function addMaterial(
   logTimeline(folderId, "human", `添加材料：${material.name}`, {
     materialId: newMaterial.id,
     type: material.type,
+  });
+  emitWorkflowEvent({
+    type: "material_added",
+    folderId,
+    materialId: newMaterial.id,
+    text: newMaterial.name,
+    timestamp: Date.now(),
   });
   return newMaterial;
 }
@@ -274,6 +319,7 @@ export function toggleAgent(folderId: string, enabled: boolean): void {
       strategy: "follow_up",
       permissions: { read: true, write: false, notify: false, create_subtask: false },
       lastAction: null,
+      workflowId: null,
     });
   }
   logTimeline(folderId, "human", `${enabled ? "启用" : "暂停"} Agent`, { enabled });
@@ -306,6 +352,7 @@ export function updateAgentConfig(
     ...current,
     strategy: input.strategy ?? current.strategy,
     permissions,
+    workflowId: input.workflowId === undefined ? current.workflowId ?? null : input.workflowId,
   });
   logTimeline(folderId, "human", "更新 Agent 配置", {
     strategy: input.strategy,

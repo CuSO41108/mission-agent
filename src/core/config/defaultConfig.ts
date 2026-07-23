@@ -3,7 +3,7 @@
 // 零 electron 依赖，纯类型 + 常量
 
 /**
- * DeepSeek API 配置
+ * OpenAI 兼容模型 API 配置。字段名保留 deepseek 以兼容已有 config.yaml。
  * OpenAI 兼容协议，通过 openai npm 包或直接 fetch 调用
  */
 export interface DeepSeekConfig {
@@ -13,6 +13,8 @@ export interface DeepSeekConfig {
   baseUrl: string;
   /** 模型名，默认 deepseek-chat */
   model: string;
+  /** 仅供设置页显示；真实 key 永远不返回渲染进程。 */
+  apiKeyConfigured?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     apiKey: "",
     baseUrl: "https://api.deepseek.com",
     model: "deepseek-chat",
+    apiKeyConfigured: false,
   },
   agent: {
     heartbeatIntervalMin: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,

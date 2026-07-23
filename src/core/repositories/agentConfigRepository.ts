@@ -17,6 +17,7 @@ export function mapAgentConfig(row: DbRow): AgentConfig {
     strategy: String(row.strategy ?? "follow_up") as AgentStrategy,
     permissions: parseJson(row.permissions, DEFAULT_PERMISSIONS),
     lastAction: toNumberOrNull(row.last_action),
+    workflowId: row.workflow_id ? String(row.workflow_id) : null,
   };
 }
 
@@ -33,13 +34,14 @@ export const AgentConfigRepository = {
     const db = getDb();
     db.prepare(
       `INSERT OR REPLACE INTO agent_configs
-        (folder_id, enabled, strategy, permissions, last_action)
-       VALUES (?, ?, ?, ?, ?);`,
+        (folder_id, enabled, strategy, permissions, workflow_id, last_action)
+       VALUES (?, ?, ?, ?, ?, ?);`,
     ).run(
       folderId,
       config.enabled ? 1 : 0,
       config.strategy,
       JSON.stringify(config.permissions),
+      config.workflowId ?? null,
       config.lastAction,
     );
   },

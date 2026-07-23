@@ -499,60 +499,8 @@ export const mockFolders: TaskFolder[] = [
   },
 ];
 
-export const mockWorkflows: WorkflowRule[] = [
-  {
-    id: "wf-001",
-    name: "邮件含「待办」关键词自动入舱",
-    enabled: true,
-    trigger: { source: "Gmail 邮箱", condition: "主题或正文包含「待办」" },
-    conditions: [{ field: "sender", op: "contains", value: "@公司" }],
-    actions: [
-      { type: "create_folder", label: "创建任务舱" },
-      { type: "attach_material", label: "归集邮件附件" },
-    ],
-    runs: 42,
-    lastRun: ts(-2 * HOUR),
-  },
-  {
-    id: "wf-002",
-    name: "日历截止前 24h Agent 催办",
-    enabled: true,
-    trigger: { source: "Google 日历", condition: "事件截止前 24 小时" },
-    conditions: [{ field: "priority", op: "eq", value: "high|critical" }],
-    actions: [
-      { type: "agent_follow_up", label: "Agent 启动跟进" },
-      { type: "notify", label: "推送至副驾面板" },
-    ],
-    runs: 18,
-    lastRun: ts(-6 * HOUR),
-  },
-  {
-    id: "wf-003",
-    name: "飞书 @你 消息生成待办",
-    enabled: true,
-    trigger: { source: "飞书", condition: "消息 @你" },
-    conditions: [],
-    actions: [
-      { type: "create_todo", label: "追加至最近活跃舱体" },
-      { type: "agent_notify", label: "Agent 提醒确认" },
-    ],
-    runs: 96,
-    lastRun: ts(-25 * MIN),
-  },
-  {
-    id: "wf-004",
-    name: "合同类附件转法务舱",
-    enabled: false,
-    trigger: { source: "Gmail 邮箱", condition: "附件为 .pdf 且含「合同」" },
-    conditions: [{ field: "size", op: "lt", value: "10MB" }],
-    actions: [
-      { type: "route_folder", label: "路由至法务舱" },
-      { type: "agent_review", label: "Agent 预审要点" },
-    ],
-    runs: 7,
-    lastRun: ts(-3 * DAY),
-  },
-];
+/** 工作流必须来自数据库，避免把演示次数或第三方连接展示成真实状态。 */
+export const mockWorkflows: WorkflowRule[] = [];
 
 export const mockAgentActivities: AgentActivity[] = [
   {

@@ -28,6 +28,7 @@ export function mapFolder(row: DbRow): TaskFolder {
       strategy: "follow_up",
       permissions: { read: true, write: false, notify: false, create_subtask: false },
       lastAction: null,
+      workflowId: null,
     },
     timeline: [],
   };

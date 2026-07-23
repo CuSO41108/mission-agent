@@ -19,6 +19,8 @@ import type {
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   FolderStatus,
+  UpsertWorkflowInput,
+  WorkflowRun,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
 
@@ -57,6 +59,16 @@ const api = {
   deleteIntegration: (id: string) =>
     ipcRenderer.invoke("integration:delete", id) as Promise<boolean>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
+  createWorkflow: (input: UpsertWorkflowInput) =>
+    ipcRenderer.invoke("workflow:create", input) as Promise<WorkflowRule>,
+  updateWorkflow: (id: string, input: UpsertWorkflowInput) =>
+    ipcRenderer.invoke("workflow:update", id, input) as Promise<WorkflowRule>,
+  deleteWorkflow: (id: string) =>
+    ipcRenderer.invoke("workflow:delete", id) as Promise<boolean>,
+  runWorkflow: (id: string, folderId?: string | null) =>
+    ipcRenderer.invoke("workflow:run", id, folderId) as Promise<WorkflowRun>,
+  getWorkflowRuns: (id: string) =>
+    ipcRenderer.invoke("workflow:runs", id) as Promise<WorkflowRun[]>,
 
   // ============ 写操作（Phase 5） ============
   // folder 状态变更
@@ -123,7 +135,12 @@ const api = {
   onAgentEvent: (callback: (payload: unknown) => void) => {
     const listener = (_event: unknown, payload: unknown) => callback(payload);
     ipcRenderer.on("agent:event", listener);
-    return () => ipcRenderer.removeListener("agent:event", listener);
+    return () => { ipcRenderer.removeListener("agent:event", listener); };
+  },
+  onWorkflowEvent: (callback: (payload: unknown) => void) => {
+    const listener = (_event: unknown, payload: unknown) => callback(payload);
+    ipcRenderer.on("workflow:event", listener);
+    return () => { ipcRenderer.removeListener("workflow:event", listener); };
   },
 };
 

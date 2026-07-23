@@ -5,6 +5,14 @@ export type FolderStatus = "active" | "paused" | "done" | "archived";
 export type Assignee = "human" | "agent";
 export type Actor = "human" | "agent" | "system";
 export type MaterialType = "doc" | "link" | "note" | "image" | "file";
+export type AgentTaskType =
+  | "analysis"
+  | "artifact"
+  | "follow_up"
+  | "material_organize"
+  | "progress_summary"
+  | "workflow";
+export type ArtifactFormat = "markdown" | "text" | "json";
 export type AgentStrategy =
   | "follow_up"
   | "material_collect"
@@ -20,6 +28,9 @@ export interface Todo {
   assignee: Assignee;
   subtasks: Todo[];
   source?: string;
+  agentTaskType?: AgentTaskType;
+  artifactFormat?: ArtifactFormat;
+  workflowId?: string | null;
 }
 
 export interface CreateTodoInput {
@@ -28,6 +39,9 @@ export interface CreateTodoInput {
   assignee: Assignee;
   parentId?: string | null;
   source?: string;
+  agentTaskType?: AgentTaskType;
+  artifactFormat?: ArtifactFormat;
+  workflowId?: string | null;
 }
 
 export interface Material {
@@ -50,11 +64,13 @@ export interface AgentConfig {
     create_subtask: boolean;
   };
   lastAction: number | null;
+  workflowId?: string | null;
 }
 
 export interface UpdateAgentConfigInput {
   strategy?: AgentStrategy;
   permissions?: Partial<AgentConfig["permissions"]>;
+  workflowId?: string | null;
 }
 
 export interface TimelineEntry {
@@ -140,15 +156,95 @@ export interface UpsertIntegrationInput {
   secrets?: Partial<Record<IntegrationSecretKey, string | null>>;
 }
 
+export type WorkflowTriggerType =
+  | "manual"
+  | "schedule"
+  | "todo_created"
+  | "todo_completed"
+  | "material_added"
+  | "folder_status_changed";
+export type WorkflowConditionField =
+  | "folder_id"
+  | "folder_priority"
+  | "folder_status"
+  | "assignee"
+  | "keyword"
+  | "deadline";
+export type WorkflowConditionOperator = "eq" | "neq" | "contains" | "before" | "after";
+export type WorkflowActionType =
+  | "create_todo"
+  | "set_folder_status"
+  | "run_agent"
+  | "write_timeline"
+  | "notify";
+
+export interface WorkflowTrigger {
+  type: WorkflowTriggerType;
+  label: string;
+  intervalMin?: number;
+  folderId?: string | null;
+}
+
+export interface WorkflowCondition {
+  id: string;
+  field: WorkflowConditionField;
+  op: WorkflowConditionOperator;
+  value: string;
+}
+
+export interface WorkflowAction {
+  id: string;
+  type: WorkflowActionType;
+  label: string;
+  config: {
+    title?: string;
+    assignee?: Assignee;
+    status?: FolderStatus;
+    message?: string;
+    folderId?: string | null;
+  };
+}
+
+export interface WorkflowNodeLayout {
+  id: string;
+  kind: "trigger" | "condition" | "action";
+  refId: string;
+  x: number;
+  y: number;
+}
+
 export interface WorkflowRule {
   id: string;
   name: string;
   enabled: boolean;
-  trigger: { source: string; condition: string };
-  conditions: { field: string; op: string; value: string }[];
-  actions: { type: string; label: string }[];
+  trigger: WorkflowTrigger;
+  conditions: WorkflowCondition[];
+  actions: WorkflowAction[];
+  layout: WorkflowNodeLayout[];
   runs: number;
   lastRun: number | null;
+  lastStatus: "success" | "failed" | null;
+  lastError: string | null;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  status: "success" | "failed" | "skipped";
+  triggerType: WorkflowTriggerType;
+  folderId: string | null;
+  message: string;
+  startedAt: number;
+  finishedAt: number;
+}
+
+export interface UpsertWorkflowInput {
+  name: string;
+  enabled: boolean;
+  trigger: WorkflowTrigger;
+  conditions: WorkflowCondition[];
+  actions: WorkflowAction[];
+  layout: WorkflowNodeLayout[];
 }
 
 export interface AgentActivity {

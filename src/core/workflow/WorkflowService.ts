@@ -37,13 +37,13 @@ export interface TickResult {
  * 流程：
  * 1. 拉取所有 folder
  * 2. 对每个 folder 检查 agent_config.enabled
- * 3. enabled 的 folder 调 runAgentOnce（串行，避免 DeepSeek 限流）
+ * 3. enabled 的 folder 调 runAgentOnce（串行，避免模型服务限流）
  * 4. 返回 TickResult
  *
  * 注意：本函数不直接推送给 UI，由调用方（main/scheduler）拿结果后
  * 通过 webContents.send 推送，保持 core 零 electron 依赖
  *
- * @param deepseekConfig DeepSeek 配置
+ * @param deepseekConfig OpenAI 兼容模型配置（字段名为旧版兼容保留）
  */
 export async function tick(deepseekConfig: {
   apiKey: string;
