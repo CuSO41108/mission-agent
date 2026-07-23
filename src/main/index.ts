@@ -18,7 +18,7 @@ import {
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { TaskFolder, UpsertIntegrationInput } from "../renderer/types";
+import type { TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
 import { seedDatabase } from "../core/db/seed";
@@ -43,6 +43,10 @@ import {
   toggleAgent,
   updateAgentConfig,
   toggleWorkflow,
+  createWorkflow,
+  updateWorkflow,
+  deleteWorkflow,
+  getWorkflowRuns,
 } from "../core/services";
 import {
   initConfigFile,
@@ -58,7 +62,13 @@ import {
   runTickOnce,
   startScheduler,
   stopScheduler,
+  configureAgentRuntime,
 } from "./scheduler";
+import {
+  registerWorkflowRuntime,
+  runDueScheduledWorkflows,
+  runWorkflow,
+} from "../core/workflow";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -72,6 +82,52 @@ let registeredShortcut: string | null = null;
 let isQuitting = false;
 // 应用配置（启动时加载，IPC 更新时同步到内存 + 磁盘）
 let appConfig: AppConfig | null = null;
+let disposeWorkflowRuntime: (() => void) | null = null;
+let workflowTimer: ReturnType<typeof setInterval> | null = null;
+let workflowTickRunning = false;
+
+function configPath(): string {
+  return path.join(app.getPath("userData"), "config.yaml");
+}
+
+function modelSecretPath(): string {
+  return path.join(app.getPath("userData"), "model-api-key.secret");
+}
+
+function saveModelApiKey(apiKey: string): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("系统安全存储暂不可用，API Key 未保存");
+  }
+  fs.writeFileSync(modelSecretPath(), safeStorage.encryptString(apiKey).toString("base64"), "utf8");
+}
+
+function loadModelApiKey(): string {
+  const secretPath = modelSecretPath();
+  if (!fs.existsSync(secretPath)) return "";
+  if (!safeStorage.isEncryptionAvailable()) return "";
+  try {
+    return safeStorage.decryptString(Buffer.from(fs.readFileSync(secretPath, "utf8"), "base64"));
+  } catch (error) {
+    console.error("[config] 模型 API Key 解密失败：", error);
+    return "";
+  }
+}
+
+function publicConfig(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    deepseek: {
+      ...config.deepseek,
+      apiKey: "",
+      apiKeyConfigured: Boolean(config.deepseek.apiKey),
+    },
+    system: { ...config.system, autoLaunch: false },
+  };
+}
+
+function persistConfig(config: AppConfig): void {
+  saveConfig(configPath(), publicConfig(config));
+}
 
 function protectIntegrationSecrets(input: UpsertIntegrationInput): UpsertIntegrationInput {
   const secrets = input.secrets;
@@ -115,7 +171,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.mjs"),
-      sandbox: false, // 后续接 node:sqlite 时可能需要 true，目前 preload 只用 ipcRenderer
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -154,10 +210,14 @@ function createWindow(): void {
 
 // ============ 托盘 ============
 function createTray(): void {
-  // 生成一个简单的占位图标（16x16 青色方块）
-  const icon = nativeImage.createEmpty();
-  // TODO: 后续替换为 assets/tray-icon.png
-  // 目前用系统默认图标占位
+  tray?.destroy();
+  tray = null;
+  const iconPath = path.join(app.getAppPath(), "assets", "tray-icon.png");
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    console.error(`[tray] 无法加载图标：${iconPath}`);
+    return;
+  }
   tray = new Tray(icon);
   tray.setToolTip(PRODUCT_NAME);
   tray.setContextMenu(
@@ -215,13 +275,19 @@ function toggleWindow(): void {
 // ============ 全局快捷键 ============
 function registerShortcut(accelerator: string): boolean {
   if (registeredShortcut === accelerator) return true;
-  if (registeredShortcut) {
-    globalShortcut.unregister(registeredShortcut);
+  if (!accelerator) {
+    if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
     registeredShortcut = null;
+    return true;
   }
-  if (!accelerator) return true;
-  const ok = globalShortcut.register(accelerator, toggleWindow);
+  let ok = false;
+  try {
+    ok = globalShortcut.register(accelerator, toggleWindow);
+  } catch {
+    ok = false;
+  }
   if (ok) {
+    if (registeredShortcut) globalShortcut.unregister(registeredShortcut);
     registeredShortcut = accelerator;
     console.log(`[shortcut] registered: ${accelerator}`);
   } else {
@@ -233,50 +299,74 @@ function registerShortcut(accelerator: string): boolean {
 // ============ 配置初始化 ============
 // 由 main 进程负责：读取 userData/config.yaml，不存在则创建默认
 function initAppConfig(): void {
-  const userDataDir = app.getPath("userData");
-  const configPath = path.join(userDataDir, "config.yaml");
-  appConfig = initConfigFile(configPath);
-  console.log(`[config] 已加载 ${configPath}`);
+  const loaded = initConfigFile(configPath());
+  let apiKey = loadModelApiKey();
+  const legacyKey = loaded.deepseek.apiKey.trim();
+  if (!apiKey && legacyKey) {
+    saveModelApiKey(legacyKey);
+    apiKey = legacyKey;
+    console.log("[config] 已将 YAML 中的模型 API Key 迁移到系统安全存储");
+  }
+  appConfig = {
+    ...loaded,
+    deepseek: { ...loaded.deepseek, apiKey, apiKeyConfigured: Boolean(apiKey) },
+    system: { ...loaded.system, autoLaunch: false },
+  };
+  persistConfig(appConfig);
+  console.log(`[config] 已加载 ${configPath()}`);
 }
 
 // 获取当前配置（IPC handler 用）
 function getConfig(): AppConfig {
   if (!appConfig) {
     // 理论上不会走到这里，whenReady 时已 init
-    const userDataDir = app.getPath("userData");
-    const configPath = path.join(userDataDir, "config.yaml");
-    appConfig = loadConfig(configPath);
+    const loaded = loadConfig(configPath());
+    const apiKey = loadModelApiKey() || loaded.deepseek.apiKey;
+    appConfig = { ...loaded, deepseek: { ...loaded.deepseek, apiKey, apiKeyConfigured: Boolean(apiKey) } };
   }
   return appConfig;
 }
 
 // 更新配置（partial merge → 内存 + 磁盘）
 function updateConfig(partial: Partial<AppConfig>): AppConfig {
-  const userDataDir = app.getPath("userData");
-  const configPath = path.join(userDataDir, "config.yaml");
   const current = getConfig();
-  const merged = mergeConfig(current, partial);
-  saveConfig(configPath, merged);
+  const requestedShortcut = partial.system?.globalShortcut;
+  if (requestedShortcut !== undefined && requestedShortcut !== registeredShortcut) {
+    if (!registerShortcut(requestedShortcut)) {
+      throw new Error("快捷键格式无效或已被其他应用占用，原快捷键保持不变");
+    }
+  }
+  const incomingKey = partial.deepseek?.apiKey?.trim();
+  if (incomingKey) saveModelApiKey(incomingKey);
+  const merged = mergeConfig(current, {
+    ...partial,
+    deepseek: partial.deepseek
+      ? { ...partial.deepseek, apiKey: incomingKey || current.deepseek.apiKey, apiKeyConfigured: Boolean(incomingKey || current.deepseek.apiKey) }
+      : undefined,
+    system: partial.system ? { ...partial.system, autoLaunch: false } : undefined,
+  });
   appConfig = merged;
+  persistConfig(merged);
 
   // 同步运行时状态：快捷键变了就重注册
-  if (
-    partial.system?.globalShortcut &&
-    partial.system.globalShortcut !== registeredShortcut
-  ) {
-    registerShortcut(partial.system.globalShortcut);
-  }
   // 同步运行时状态：开关变化时启动/停止固定的每小时调度器
   if (partial.agent && mainWindow) {
     startScheduler(getConfig, mainWindow);
   }
+  if (partial.system?.trayIcon !== undefined) {
+    if (merged.system.trayIcon) createTray();
+    else {
+      tray?.destroy();
+      tray = null;
+    }
+  }
 
-  return merged;
+  return publicConfig(merged);
 }
 
 // ============ IPC 注册 ============
 // IPC handler 路由：渲染进程 invoke 的 channel → 调 core/Service
-// Phase 3：读操作；Phase 4：加 config 读写 + DeepSeek 测试
+// Phase 3：读操作；Phase 4：加 config 读写 + 模型连接测试
 function registerIpc(): void {
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:platform", () => process.platform);
@@ -301,15 +391,27 @@ function registerIpc(): void {
 
   // 工作流
   ipcMain.handle("workflow:list", () => getAllWorkflows());
+  ipcMain.handle("workflow:create", (_e, input: UpsertWorkflowInput) => createWorkflow(input));
+  ipcMain.handle("workflow:update", (_e, id: string, input: UpsertWorkflowInput) => updateWorkflow(id, input));
+  ipcMain.handle("workflow:delete", (_e, id: string) => deleteWorkflow(id));
+  ipcMain.handle("workflow:runs", (_e, id: string) => getWorkflowRuns(id));
+  ipcMain.handle("workflow:run", async (_e, id: string, folderId?: string | null) => {
+    const run = await runWorkflow(id, {
+      type: "manual",
+      folderId: folderId ?? null,
+      timestamp: Date.now(),
+    });
+    return run;
+  });
 
   // ============ 配置（Phase 4） ============
-  // 获取完整配置（API key 等敏感字段也返回，渲染层需要回填表单）
-  ipcMain.handle("config:get", () => getConfig());
+  // 渲染层只得到“已配置”状态，不得到可逆的 API Key。
+  ipcMain.handle("config:get", () => publicConfig(getConfig()));
   // 更新配置（partial merge），返回合并后的完整 config
   ipcMain.handle("config:set", (_e: unknown, partial: Partial<AppConfig>) =>
     updateConfig(partial),
   );
-  // 测试 DeepSeek 连接：发一个最小请求验证 key
+  // 测试 OpenAI 兼容模型连接：发一个最小请求验证 key
   ipcMain.handle("deepseek:test", async () => {
     try {
       const result = await testDeepSeek(getConfig().deepseek);
@@ -472,8 +574,66 @@ app.whenReady().then(() => {
   initAppDatabase();
   initAppConfig();
   createWindow();
-  createTray();
+  if (getConfig().system.trayIcon) createTray();
   registerIpc();
+  configureAgentRuntime(() => ({
+    artifactRoot: getConfig().storage.vaultDir
+      ? path.join(getConfig().storage.vaultDir, "agent-artifacts")
+      : path.join(app.getPath("userData"), "artifacts"),
+    notify: ({ title, body, folderId }) => {
+      if (!mainWindow?.isDestroyed()) {
+        mainWindow?.webContents.send("agent:event", {
+          type: "agent_notification",
+          title,
+          body,
+          folderId,
+          timestamp: Date.now(),
+        });
+      }
+    },
+    runWorkflow: (workflowId, folderId) => runWorkflow(workflowId, {
+      type: "manual",
+      folderId,
+      timestamp: Date.now(),
+    }),
+  }));
+  disposeWorkflowRuntime = registerWorkflowRuntime({
+    runAgent: async (folderId) => {
+      if (!mainWindow) return { ok: false, error: "主窗口尚未初始化" };
+      const result = await runFolderOnce(getConfig, mainWindow, folderId);
+      return { ok: result.ok, summary: result.summary, error: result.error };
+    },
+    notify: (payload) => {
+      if (!mainWindow?.isDestroyed()) {
+        mainWindow?.webContents.send("workflow:event", {
+          type: "notification",
+          ...payload,
+          timestamp: Date.now(),
+        });
+      }
+    },
+    changed: (folderIds) => {
+      if (!mainWindow?.isDestroyed()) {
+        mainWindow?.webContents.send("workflow:event", {
+          type: "changed",
+          folderIds,
+          timestamp: Date.now(),
+        });
+      }
+    },
+  });
+  workflowTimer = setInterval(() => {
+    if (workflowTickRunning) return;
+    workflowTickRunning = true;
+    void runDueScheduledWorkflows()
+      .then((runs) => {
+        if (runs.length && !mainWindow?.isDestroyed()) {
+          mainWindow?.webContents.send("workflow:event", { type: "runs_completed", runs, timestamp: Date.now() });
+        }
+      })
+      .catch((error) => console.error("[workflow] 定时工作流执行失败：", error))
+      .finally(() => { workflowTickRunning = false; });
+  }, 60_000);
   // 注册配置中的快捷键（用户可能在设置页改过）
   registerShortcut(getConfig().system.globalShortcut || DEFAULT_SHORTCUT);
   // 启动心跳调度器（按配置的间隔与开关）
@@ -505,6 +665,10 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   globalShortcut.unregisterAll();
   stopScheduler();
+  disposeWorkflowRuntime?.();
+  disposeWorkflowRuntime = null;
+  if (workflowTimer) clearInterval(workflowTimer);
+  workflowTimer = null;
   closeDatabase();
 });
 

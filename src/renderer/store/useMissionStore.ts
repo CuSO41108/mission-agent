@@ -12,14 +12,12 @@ import type {
   CreateTodoInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
+  UpsertWorkflowInput,
+  WorkflowRun,
 } from "@/types";
 // Phase 3：folder/integration/workflow 改为从 SQLite 拉取
-// 以下 mock 仍保留：agentActivity / copilot / notification 留到后续 Phase 接入
-import {
-  mockAgentActivities,
-  mockCopilotMessages,
-  mockNotifications,
-} from "@/data/mock";
+  // Copilot 仍保留界面演示；Agent 活动和通知不再伪造运行结果。
+import { mockCopilotMessages } from "@/data/mock";
 
 interface MissionState {
   folders: TaskFolder[];
@@ -38,15 +36,21 @@ interface MissionState {
   loadError: string | null;
 
   loadFromDb: () => Promise<void>;
+  refreshFolders: (folderIds?: string[]) => Promise<void>;
+  refreshWorkflows: () => Promise<void>;
   createFolder: (input: CreateFolderInput) => Promise<TaskFolder>;
   deleteFolder: (folderId: string) => Promise<boolean>;
   createTodo: (folderId: string, input: CreateTodoInput) => Promise<TaskFolder>;
   toggleTodo: (folderId: string, todoId: string) => Promise<void>;
-  toggleAgent: (folderId: string) => void;
+  toggleAgent: (folderId: string) => Promise<void>;
   updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) => Promise<TaskFolder>;
   runAgentOnce: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
-  setFolderStatus: (folderId: string, status: TaskFolder["status"]) => void;
-  toggleWorkflow: (id: string) => void;
+  setFolderStatus: (folderId: string, status: TaskFolder["status"]) => Promise<void>;
+  toggleWorkflow: (id: string) => Promise<void>;
+  createWorkflow: (input: UpsertWorkflowInput) => Promise<WorkflowRule>;
+  updateWorkflow: (id: string, input: UpsertWorkflowInput) => Promise<WorkflowRule>;
+  deleteWorkflow: (id: string) => Promise<boolean>;
+  runWorkflow: (id: string, folderId?: string | null) => Promise<WorkflowRun>;
   createIntegration: (input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
   updateIntegration: (id: string, input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
   deleteIntegration: (id: string) => Promise<boolean>;
@@ -208,12 +212,12 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   folders: [],
   integrations: [],
   workflows: [],
-  // 以下仍用 mock，留到后续 Phase 接入 SQLite
-  agentActivities: mockAgentActivities,
+  // Copilot 尚未接模型运行时；其余运行状态来自数据库或主进程事件。
+  agentActivities: [],
   copilotMessages: mockCopilotMessages,
   copilotOpen: false,
   copilotStreaming: false,
-  notifications: mockNotifications,
+  notifications: [],
   commandPaletteOpen: false,
   notificationPanelOpen: false,
   loaded: false,
@@ -222,7 +226,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
   // ============ 从 SQLite 加载数据（Phase 3） ============
   loadFromDb: async () => {
-    if (get().loading || get().loaded) return;
+    if (get().loading) return;
     set({ loading: true, loadError: null });
     try {
       const [folders, integrations, workflows] = await Promise.all([
@@ -246,9 +250,30 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     }
   },
 
+  refreshFolders: async (folderIds) => {
+    if (!folderIds?.length) {
+      const folders = await window.missionConsole.getFolders();
+      set({ folders });
+      return;
+    }
+    const uniqueIds = [...new Set(folderIds)];
+    const refreshed = await Promise.all(uniqueIds.map((id) => window.missionConsole.getFolder(id)));
+    const byId = new Map<string, TaskFolder>();
+    for (const folder of refreshed) {
+      if (folder) byId.set(folder.id, folder);
+    }
+    set((state) => ({
+      folders: state.folders.map((folder) => byId.get(folder.id) ?? folder),
+    }));
+  },
+
+  refreshWorkflows: async () => {
+    const workflows = await window.missionConsole.getWorkflows();
+    set({ workflows });
+  },
+
   // ============ 写操作（Phase 5：调 IPC + 本地刷新） ============
-  // 设计：写 IPC 落库后，本地 store 乐观更新 + 拿返回值刷新
-  // 失败时回滚（此处简化为 console.error，未来可加 toast）
+  // 设计：写 IPC 成功后使用返回值或重新查询数据库，避免乐观状态与 SQLite 分叉。
 
   createFolder: async (input) => {
     const folder = await window.missionConsole.createFolder(input);
@@ -292,22 +317,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     }));
   },
 
-  toggleAgent: (folderId) => {
+  toggleAgent: async (folderId) => {
     const folder = get().folders.find((f) => f.id === folderId);
     if (!folder) return;
     const newEnabled = !folder.agentConfig.enabled;
 
-    set((s) => ({
-      folders: s.folders.map((f) =>
-        f.id === folderId
-          ? { ...f, agentConfig: { ...f.agentConfig, enabled: newEnabled } }
-          : f
-      ),
-    }));
-
-    void window.missionConsole
-      .toggleAgent(folderId, newEnabled)
-      .catch((err) => console.error("[store] toggleAgent IPC 失败：", err));
+    await window.missionConsole.toggleAgent(folderId, newEnabled);
+    await get().refreshFolders([folderId]);
   },
 
   updateAgentConfig: async (folderId, input) => {
@@ -329,49 +345,42 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     return result;
   },
 
-  setFolderStatus: (folderId, status) => {
-    // 乐观更新
-    set((s) => ({
-      folders: s.folders.map((f) =>
-        f.id === folderId
-          ? {
-              ...f,
-              status,
-              progress: status === "done" ? 100 : f.progress,
-              timeline: [
-                {
-                  id: genId(),
-                  folderId,
-                  actor: "human" as const,
-                  action: `状态变更为 ${status}`,
-                  timestamp: Date.now(),
-                },
-                ...f.timeline,
-              ],
-            }
-          : f
-      ),
-    }));
-
-    void window.missionConsole
-      .setFolderStatus(folderId, status)
-      .catch((err) => console.error("[store] setFolderStatus IPC 失败：", err));
+  setFolderStatus: async (folderId, status) => {
+    const updated = await window.missionConsole.setFolderStatus(folderId, status);
+    if (updated) await get().refreshFolders([folderId]);
   },
 
-  toggleWorkflow: (id) => {
+  toggleWorkflow: async (id) => {
     const wf = get().workflows.find((w) => w.id === id);
     if (!wf) return;
     const newEnabled = !wf.enabled;
 
-    set((s) => ({
-      workflows: s.workflows.map((w) =>
-        w.id === id ? { ...w, enabled: newEnabled } : w
-      ),
-    }));
+    await window.missionConsole.toggleWorkflow(id, newEnabled);
+    await get().refreshWorkflows();
+  },
 
-    void window.missionConsole
-      .toggleWorkflow(id, newEnabled)
-      .catch((err) => console.error("[store] toggleWorkflow IPC 失败：", err));
+  createWorkflow: async (input) => {
+    const workflow = await window.missionConsole.createWorkflow(input);
+    await get().refreshWorkflows();
+    return workflow;
+  },
+
+  updateWorkflow: async (id, input) => {
+    const workflow = await window.missionConsole.updateWorkflow(id, input);
+    await get().refreshWorkflows();
+    return workflow;
+  },
+
+  deleteWorkflow: async (id) => {
+    const deleted = await window.missionConsole.deleteWorkflow(id);
+    if (deleted) await get().refreshWorkflows();
+    return deleted;
+  },
+
+  runWorkflow: async (id, folderId) => {
+    const run = await window.missionConsole.runWorkflow(id, folderId);
+    await Promise.all([get().refreshWorkflows(), get().refreshFolders(run.folderId ? [run.folderId] : undefined)]);
+    return run;
   },
 
   createIntegration: async (input) => {

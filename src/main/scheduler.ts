@@ -1,5 +1,5 @@
 // Scheduler · 心跳定时器
-// 职责：node-cron 注册定时器 → 调 WorkflowService.tick → 推送事件给渲染层
+// 职责：按可配置分钟间隔递归调度 → 调 WorkflowService.tick → 推送事件给渲染层
 // 只在 main 进程内使用，依赖 electron 的 BrowserWindow
 
 import type { BrowserWindow } from "electron";
@@ -9,6 +9,7 @@ import {
   type TickResult,
 } from "../core/workflow";
 import type { AgentResult } from "../core/agent";
+import type { AgentRunOptions } from "../core/agent";
 import type { AppConfig } from "../core/config";
 import {
   DEEPSEEK_REQUEST_TIMEOUT_MS,
@@ -29,6 +30,12 @@ let lastRunFinishedAt: number | null = null;
 let lastError: string | null = null;
 
 type ConfigProvider = () => AppConfig;
+type RuntimeOptionsProvider = () => Pick<AgentRunOptions, "artifactRoot" | "notify" | "runWorkflow">;
+let runtimeOptionsProvider: RuntimeOptionsProvider = () => ({});
+
+export function configureAgentRuntime(provider: RuntimeOptionsProvider): void {
+  runtimeOptionsProvider = provider;
+}
 export type SchedulerRunState =
   | "idle"
   | "running"
@@ -164,6 +171,7 @@ export async function runTickOnce(
 
   try {
     const result = await tick(config.deepseek, {
+      ...runtimeOptionsProvider(),
       signal: controller.signal,
       requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
     });
@@ -258,10 +266,11 @@ export async function runFolderOnce(
 
   try {
     const result = await runFolderAgent(folderId, config.deepseek, {
+      ...runtimeOptionsProvider(),
       signal: controller.signal,
       requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
     });
-    const timedOut = didTimeout() || result.errorCode === "DEEPSEEK_TIMEOUT";
+    const timedOut = didTimeout() || result.errorCode === "MODEL_TIMEOUT";
     const cancelled = controller.signal.aborted && !didTimeout();
     const outcome = timedOut
       ? "timed_out"

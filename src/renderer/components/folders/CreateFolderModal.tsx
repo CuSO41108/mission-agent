@@ -149,7 +149,7 @@ export default function CreateFolderModal({ open, onClose, onCreated }: CreateFo
                 <div className="flex-1">
                   <p className="text-[12px] text-ink">{t("创建后启用 Agent", "Enable Agent after creation")}</p>
                   <p className="text-[10px] text-ink-faint mt-0.5">
-                    {t("默认关闭；开启后心跳可能调用 DeepSeek。", "Off by default; enabling it may call DeepSeek during heartbeats.")}
+                    {t("默认关闭；开启后心跳可能调用你配置的模型 API。", "Off by default; enabling it may call your configured model API.")}
                   </p>
                 </div>
                 <span className={cn("w-2 h-2 rounded-full", agentEnabled ? "bg-jade" : "bg-ink-faint")} />

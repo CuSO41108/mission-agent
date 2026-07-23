@@ -3,8 +3,8 @@
 // 之后每次启动只 migrate，不会重复 seed，保证用户数据不被覆盖
 
 import { getDb } from "./client";
-import { mockFolders, mockWorkflows } from "../../renderer/data/mock";
-import type { TaskFolder, WorkflowRule } from "../../renderer/types";
+import { mockFolders } from "../../renderer/data/mock";
+import type { TaskFolder } from "../../renderer/types";
 
 /**
  * 执行种子数据写入
@@ -33,10 +33,6 @@ export function seedDatabase(): void {
         insertTimeline(entry);
       }
       insertAgentConfig(folder.id, folder.agentConfig);
-    }
-
-    for (const workflow of mockWorkflows) {
-      insertWorkflow(workflow);
     }
 
     db.exec("COMMIT;");
@@ -77,8 +73,9 @@ function insertTodo(
   const db = getDb();
   db.prepare(
     `INSERT OR IGNORE INTO todos
-      (id, folder_id, parent_id, title, done, due_date, assignee, source, sort_order, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, folder_id, parent_id, title, done, due_date, assignee, source,
+       agent_task_type, artifact_format, workflow_id, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     todo.id,
     folderId,
@@ -88,6 +85,9 @@ function insertTodo(
     todo.dueDate,
     todo.assignee,
     todo.source ?? null,
+    todo.agentTaskType ?? "analysis",
+    todo.artifactFormat ?? "markdown",
+    todo.workflowId ?? null,
     0, // sort_order 暂未在 mock 中建模
     Date.now(),
   );
@@ -136,31 +136,14 @@ function insertAgentConfig(
   const db = getDb();
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs
-      (folder_id, enabled, strategy, permissions, last_action)
-     VALUES (?, ?, ?, ?, ?)`,
+      (folder_id, enabled, strategy, permissions, workflow_id, last_action)
+     VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(
     folderId,
     config.enabled ? 1 : 0,
     config.strategy,
     JSON.stringify(config.permissions),
+    config.workflowId ?? null,
     config.lastAction,
-  );
-}
-
-function insertWorkflow(workflow: WorkflowRule): void {
-  const db = getDb();
-  db.prepare(
-    `INSERT OR IGNORE INTO workflows
-      (id, name, enabled, trigger, conditions, actions, runs, last_run)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    workflow.id,
-    workflow.name,
-    workflow.enabled ? 1 : 0,
-    JSON.stringify(workflow.trigger),
-    JSON.stringify(workflow.conditions),
-    JSON.stringify(workflow.actions),
-    workflow.runs,
-    workflow.lastRun,
   );
 }

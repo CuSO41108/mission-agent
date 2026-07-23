@@ -17,21 +17,23 @@ import { AgentConfigRepository } from "../repositories/agentConfigRepository";
  * 顶层 todo（parentId === null）的 subtasks 填充其子节点
  */
 function buildTodoTree(allTodos: TodoWithParent[]): Todo[] {
-  const topLevel = allTodos.filter((t) => t.parentId === null);
-  return topLevel.map((parent) => {
-    const { parentId: _drop, ...parentFields } = parent;
-    void _drop; // 丢弃 parentId 字段，转回 Todo 类型
+  const children = new Map<string | null, TodoWithParent[]>();
+  for (const todo of allTodos) {
+    const group = children.get(todo.parentId) ?? [];
+    group.push(todo);
+    children.set(todo.parentId, group);
+  }
+  const build = (todo: TodoWithParent, ancestors: Set<string>): Todo => {
+    const { parentId: _drop, ...fields } = todo;
+    void _drop;
+    if (ancestors.has(todo.id)) return { ...fields, subtasks: [] };
+    const nextAncestors = new Set(ancestors).add(todo.id);
     return {
-      ...parentFields,
-      subtasks: allTodos
-        .filter((child) => child.parentId === parent.id)
-        .map((child) => {
-          const { parentId: _drop2, ...childFields } = child;
-          void _drop2;
-          return { ...childFields, subtasks: [] };
-        }),
+      ...fields,
+      subtasks: (children.get(todo.id) ?? []).map((child) => build(child, nextAncestors)),
     };
-  });
+  };
+  return (children.get(null) ?? []).map((todo) => build(todo, new Set()));
 }
 
 /**
@@ -56,6 +58,7 @@ export function getFolderDetail(folderId: string): TaskFolder | null {
     strategy: "follow_up",
     permissions: { read: true, write: false, notify: false, create_subtask: false },
     lastAction: null,
+    workflowId: null,
   };
 
   return folder;

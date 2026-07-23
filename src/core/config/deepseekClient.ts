@@ -1,4 +1,4 @@
-// DeepSeek 客户端 · OpenAI 兼容协议
+// 模型客户端 · OpenAI 兼容协议（DeepSeek 是默认示例，不是硬依赖）
 // 用 fetch 直调，不依赖 openai npm 包（减少打包体积）
 // 零 electron 依赖，未来 Web 版可复用
 
@@ -28,7 +28,7 @@ export interface ChatOptions {
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 /**
- * 测试 DeepSeek API 连接
+ * 测试 OpenAI 兼容模型 API 连接
  * 发一个最小请求验证 key 是否有效
  *
  * @returns 成功返回模型回复内容，失败抛 Error
@@ -44,9 +44,9 @@ export async function testDeepSeek(config: DeepSeekConfig): Promise<ChatResult> 
 }
 
 /**
- * 调用 DeepSeek Chat API（OpenAI 兼容协议）
+ * 调用 Chat Completions API（OpenAI 兼容协议）
  *
- * @param config DeepSeek 配置（apiKey + baseUrl + model）
+ * @param config 模型配置（apiKey + baseUrl + model）
  * @param messages 消息列表
  * @returns ChatResult，失败抛 Error（含状态码与响应体）
  */
@@ -68,7 +68,7 @@ export async function chat(
   }
   const timeout = setTimeout(() => {
     timedOut = true;
-    controller.abort(new Error(`DeepSeek 请求超过 ${timeoutMs}ms`));
+    controller.abort(new Error(`模型请求超过 ${timeoutMs}ms`));
   }, timeoutMs);
 
   let response: Response;
@@ -89,10 +89,10 @@ export async function chat(
     });
   } catch (err) {
     if (timedOut) {
-      throw new Error(`DeepSeek 请求超时（${timeoutMs}ms）`);
+      throw new Error(`模型请求超时（${timeoutMs}ms）`);
     }
     if (options.signal?.aborted) {
-      throw new Error("DeepSeek 请求已取消");
+      throw new Error("模型请求已取消");
     }
     throw err;
   } finally {
@@ -103,7 +103,7 @@ export async function chat(
   if (!response.ok) {
     const errorBody = await response.text();
     throw new Error(
-      `DeepSeek API 返回 ${response.status}：${errorBody.slice(0, 200)}`,
+      `模型 API 返回 ${response.status}：${errorBody.slice(0, 200)}`,
     );
   }
 
@@ -121,7 +121,7 @@ export async function chat(
 
   const choice = data.choices?.[0];
   if (!choice) {
-    throw new Error("DeepSeek API 返回为空（choices 数组为空）");
+    throw new Error("模型 API 返回为空（choices 数组为空）");
   }
 
   return {

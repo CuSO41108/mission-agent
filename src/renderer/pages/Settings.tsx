@@ -36,18 +36,21 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
-  // 用于 DeepSeek 测试时拿当前表单里的临时值（用户可能还没保存）
+  // 用于模型连接测试时拿当前表单里的临时值（用户可能还没保存）
   const [draftApiKey, setDraftApiKey] = useState("");
   const [draftModel, setDraftModel] = useState("deepseek-chat");
   const [draftHeartbeatInterval, setDraftHeartbeatInterval] = useState(60);
+  const [draftShortcut, setDraftShortcut] = useState("");
+  const [saveError, setSaveError] = useState("");
 
   // 加载配置
   useEffect(() => {
     void window.missionConsole.getConfig().then((cfg) => {
       setConfigState(cfg);
-      setDraftApiKey(cfg.deepseek.apiKey);
+      setDraftApiKey("");
       setDraftModel(cfg.deepseek.model);
       setDraftHeartbeatInterval(cfg.agent.heartbeatIntervalMin);
+      setDraftShortcut(cfg.system.globalShortcut);
       setLoading(false);
     });
   }, []);
@@ -56,10 +59,14 @@ export default function Settings() {
   async function savePartial(partial: Partial<AppConfig>) {
     if (!config) return null;
     setSaving(true);
+    setSaveError("");
     try {
       const merged = await window.missionConsole.setConfig(partial);
       setConfigState(merged);
       return merged;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+      return null;
     } finally {
       setSaving(false);
     }
@@ -75,14 +82,19 @@ export default function Settings() {
     if (merged) setDraftHeartbeatInterval(merged.agent.heartbeatIntervalMin);
   }
 
-  // 测试 DeepSeek 连接
+  // 测试 OpenAI 兼容模型连接
   async function testConnection() {
     setTestStatus("testing");
     setTestMessage("");
     // 先保存当前 draft，再触发测试（测试用的是落盘后的 config）
-    await savePartial({
+    const saved = await savePartial({
       deepseek: { ...config!.deepseek, apiKey: draftApiKey, model: draftModel },
     });
+    if (!saved) {
+      setTestStatus("error");
+      setTestMessage(t("模型配置保存失败，未发起测试请求", "Model settings could not be saved; no test request was sent"));
+      return;
+    }
     const result = await window.missionConsole.testDeepSeek();
     if (result.ok) {
       setTestStatus("success");
@@ -109,7 +121,7 @@ export default function Settings() {
           <div>
             <h1 className="font-display font-bold text-2xl tracking-wide text-ink">{t("设置", "Settings")}</h1>
             <p className="text-[11px] text-ink-faint mt-1 data-mono">
-              CONFIG · userData/config.yaml
+              CONFIG · userData/config.yaml + safeStorage
             </p>
           </div>
           {saving && (
@@ -184,11 +196,11 @@ export default function Settings() {
           </Field>
         </Section>
 
-        {/* 1. DeepSeek 配置 */}
+        {/* 1. OpenAI 兼容模型配置 */}
         <Section
           icon={KeyRound}
-          title={t("DeepSeek 配置", "DeepSeek configuration")}
-          desc={t("LLM 接入 · OpenAI 兼容协议", "LLM connection · OpenAI-compatible API")}
+          title={t("模型配置", "Model configuration")}
+          desc={t("OpenAI 兼容协议 · DeepSeek 仅为默认示例", "OpenAI-compatible API · DeepSeek is only the default example")}
           code="LLM"
         >
           <Field label="API Key">
@@ -197,7 +209,7 @@ export default function Settings() {
                 type={showApiKey ? "text" : "password"}
                 value={draftApiKey}
                 onChange={(e) => setDraftApiKey(e.target.value)}
-                placeholder="sk-xxxxxxxxxxxx"
+                placeholder={config?.deepseek.apiKeyConfigured ? t("已安全保存；留空表示不更换", "Saved securely; leave blank to keep it") : "sk-xxxxxxxxxxxx"}
                 className="flex-1 input"
               />
               <button
@@ -211,14 +223,13 @@ export default function Settings() {
           </Field>
 
           <Field label={t("模型", "Model")}>
-            <select
+            <input
+              type="text"
               value={draftModel}
               onChange={(e) => setDraftModel(e.target.value)}
+              placeholder="deepseek-chat / gpt-4.1-mini / ..."
               className="input"
-            >
-              <option value="deepseek-chat">deepseek-chat ({t("通用对话", "general chat")})</option>
-              <option value="deepseek-reasoner">deepseek-reasoner ({t("推理模型", "reasoning")})</option>
-            </select>
+            />
           </Field>
 
           <Field label="Base URL">
@@ -236,7 +247,7 @@ export default function Settings() {
           <div className="flex items-center gap-3 pt-2">
             <button
               onClick={testConnection}
-              disabled={testStatus === "testing" || !draftApiKey}
+              disabled={testStatus === "testing" || (!draftApiKey && !config?.deepseek.apiKeyConfigured)}
               className="btn-phosphor"
             >
               {testStatus === "testing" ? (
@@ -338,9 +349,10 @@ export default function Settings() {
         <Section icon={Monitor} title={t("系统选项", "System options")} desc={t("桌面应用行为", "Desktop app behavior")} code="SYS">
           <Toggle
             label={t("开机自启", "Launch at startup")}
-            desc={t("系统登录时自动启动 Mission Console", "Start Mission Console when you sign in")}
-            checked={config?.system.autoLaunch ?? false}
-            onChange={(v) => savePartial({ system: { ...config!.system, autoLaunch: v } })}
+            desc={t("当前版本暂未启用，默认关闭", "Temporarily unavailable and kept off")}
+            checked={false}
+            disabled
+            onChange={() => undefined}
           />
           <Toggle
             label={t("托盘图标", "Tray icon")}
@@ -351,15 +363,32 @@ export default function Settings() {
           <Field label={t("全局快捷键", "Global shortcut")}>
             <input
               type="text"
-              value={config?.system.globalShortcut ?? ""}
-              onChange={(e) =>
-                savePartial({ system: { ...config!.system, globalShortcut: e.target.value } })
-              }
+              value={draftShortcut}
+              onChange={(e) => setDraftShortcut(e.target.value)}
               placeholder="Ctrl+Alt+Space"
               className="input"
             />
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={async () => {
+                  const merged = await savePartial({ system: { ...config!.system, globalShortcut: draftShortcut } });
+                  if (merged) setDraftShortcut(merged.system.globalShortcut);
+                }}
+              >
+                {t("应用快捷键", "Apply shortcut")}
+              </button>
+              <span className="text-[10px] text-ink-faint">{t("输入完成后手动应用；失败时保留旧快捷键。", "Apply after typing; failures keep the previous shortcut.")}</span>
+            </div>
           </Field>
         </Section>
+
+        {saveError && (
+          <div className="border border-rose-400/30 bg-rose-400/5 px-3 py-2 text-[11px] text-rose-300">
+            {saveError}
+          </div>
+        )}
 
         {/* 5. 适配器配置入口 */}
         <Section
@@ -446,11 +475,13 @@ function Toggle({
   desc,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   desc?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between py-1">
@@ -459,9 +490,11 @@ function Toggle({
         {desc && <div className="text-[10px] text-ink-faint mt-0.5">{desc}</div>}
       </div>
       <button
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
           "relative w-9 h-5 rounded-full transition-colors",
+          disabled && "opacity-40 cursor-not-allowed",
           checked ? "bg-phosphor-400/80" : "bg-white/10",
         )}
       >
