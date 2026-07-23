@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, ChevronRight, Gauge, ListTodo, Radio } from "lucide-react";
+import { Plus, ChevronRight, Gauge, ListTodo, RefreshCw } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import StatStrip from "@/components/dashboard/StatStrip";
 import FocusCard from "@/components/dashboard/FocusCard";
@@ -10,6 +11,7 @@ import ProgressRing from "@/components/ui/ProgressRing";
 import { shortTime } from "@/lib/format";
 import { usePreferences } from "@/i18n";
 import { themeAccent } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import {
   activitiesInLast24Hours,
   buildAgentActivities,
@@ -19,6 +21,10 @@ import {
 export default function Dashboard() {
   const { text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
+  const loadFromDb = useMissionStore((s) => s.loadFromDb);
+  const loading = useMissionStore((s) => s.loading);
+  const [refreshResult, setRefreshResult] = useState<"idle" | "success" | "error">("idle");
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const visibleFolders = folders.filter((folder) => folder.status !== "archived");
   const activities = activitiesInLast24Hours(buildAgentActivities(visibleFolders));
 
@@ -47,6 +53,14 @@ export default function Dashboard() {
     color: themeAccent(f.coverColor),
   }));
 
+  const refreshData = async () => {
+    setRefreshResult("idle");
+    await loadFromDb();
+    const failed = Boolean(useMissionStore.getState().loadError);
+    setRefreshResult(failed ? "error" : "success");
+    if (!failed) setLastRefreshedAt(Date.now());
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1400px] mx-auto">
       {/* 顶部欢迎条 */}
@@ -70,10 +84,19 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn-ghost">
-            <Radio className="w-3 h-3" strokeWidth={1.5} />
-            {t("同步", "Sync")}
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button type="button" onClick={() => void refreshData()} disabled={loading} className="btn-ghost disabled:opacity-50">
+              <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} strokeWidth={1.5} />
+              {loading ? t("正在刷新", "Refreshing") : t("刷新数据", "Refresh data")}
+            </button>
+            <span className={cn("text-[9px] data-mono", refreshResult === "error" ? "text-coral" : "text-ink-faint")}>
+              {refreshResult === "error"
+                ? t("刷新失败，请重试", "Refresh failed; try again")
+                : refreshResult === "success" && lastRefreshedAt
+                  ? t(`已刷新 · ${shortTime(lastRefreshedAt)}`, `Refreshed · ${shortTime(lastRefreshedAt)}`)
+                  : t("读取本地数据库", "Reads the local database")}
+            </span>
+          </div>
           <Link to="/folders?create=1" className="btn-phosphor">
             <Plus className="w-3 h-3" strokeWidth={2} />
             {t("新建舱体", "New folder")}
@@ -197,7 +220,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Agent 活动流 + 接口流量 */}
+      {/* Agent 活动流 + 适配器状态 */}
       <div className="grid grid-cols-12 gap-4">
         <div className="col-span-12 lg:col-span-8 panel h-[320px]">
           <AgentFeed activities={activities} />
@@ -207,7 +230,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-phosphor-400" />
               <h3 className="font-display text-[11px] font-semibold text-ink">
-                {t("接口流量", "Integration traffic")} · 24h
+                {t("适配器状态", "Adapter status")}
               </h3>
             </div>
             <Link
@@ -217,51 +240,37 @@ export default function Dashboard() {
               {t("管理", "Manage")} →
             </Link>
           </div>
-          <InterfaceBars />
+          <AdapterStatusList />
         </div>
       </div>
     </div>
   );
 }
 
-// 接口流量迷你条形图（自绘）
-function InterfaceBars() {
+function AdapterStatusList() {
+  const { text: t } = usePreferences();
   const integrations = useMissionStore((s) => s.integrations);
-  const connected = integrations.filter((i) => i.eventsToday > 0 || i.status === "connected");
-  const max = Math.max(...connected.map((i) => i.eventsToday), 1);
 
   return (
     <div className="space-y-2.5">
-      {connected.slice(0, 6).map((i) => {
-        const pct = (i.eventsToday / max) * 100;
-        const color =
-          i.type === "email"
-            ? "rgb(var(--phosphor-400))"
-            : i.type === "chat"
-              ? "rgb(var(--violet))"
-              : i.type === "calendar"
-                ? "rgb(var(--amber-500))"
-                : "rgb(var(--jade))";
-        return (
-          <div key={i.id} className="flex items-center gap-3">
-            <span className="text-[10px] data-mono text-ink-muted w-16 truncate shrink-0">
-              {i.name}
-            </span>
-            <div className="flex-1 h-4 bg-obsidian-850 rounded-sm relative overflow-hidden">
-              <div
-                className="h-full transition-all duration-700"
-                style={{
-                  width: `${Math.max(pct, 2)}%`,
-                  background: color,
-                }}
-              />
-              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] data-mono text-ink">
-                {i.eventsToday}
-              </span>
-            </div>
+      {integrations.slice(0, 6).map((integration) => (
+        <div key={integration.id} className="flex items-center gap-3 border border-white/5 px-2.5 py-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] text-ink truncate">{integration.name}</p>
+            <p className="text-[9px] text-ink-faint">{integration.config.provider || integration.type}</p>
           </div>
-        );
-      })}
+          <span className="text-[9px] text-amber-500 shrink-0">{t("运行时未接入", "Runtime unavailable")}</span>
+        </div>
+      ))}
+      {integrations.length === 0 && (
+        <div className="h-[210px] flex flex-col items-center justify-center text-center px-5 border border-dashed border-white/8">
+          <p className="text-[11px] text-ink-muted">{t("尚未注册适配器", "No adapters registered")}</p>
+          <p className="mt-1 text-[9px] leading-relaxed text-ink-faint">
+            {t("第三方连接运行时尚未接入，这里不会显示模拟流量。", "Third-party runtimes are unavailable, so no simulated traffic is shown.")}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
