@@ -6,7 +6,7 @@
  * 类型导出：export type MissionConsoleApi
  * 渲染器通过 import type 复用，类型零重复
  */
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 // 用 import type 引入业务类型，preload 不在运行时依赖 renderer
 import type {
@@ -90,6 +90,7 @@ const api = {
     ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
   pickMaterialFile: () =>
     ipcRenderer.invoke("file:pickMaterial") as Promise<{ path: string; name: string } | null>,
+  getPathForDroppedFile: (file: File) => webUtils.getPathForFile(file),
   openMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:open", folderId, materialId) as Promise<
       { ok: true } | { ok: false; error: string }

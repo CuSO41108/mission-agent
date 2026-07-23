@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Loader2,
   Trash2,
+  Upload,
 } from "lucide-react";
 import type { Material, MaterialType } from "@/types";
 import { shortTime } from "@/lib/format";
@@ -52,6 +53,9 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
   const [picking, setPicking] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const [dropping, setDropping] = useState(false);
 
   const reset = () => {
     setInput("");
@@ -87,6 +91,35 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setPicking(false);
+    }
+  };
+
+  const addDroppedFiles = async (files: File[]) => {
+    if (!onAdd || dropping || files.length === 0) return;
+    setDropping(true);
+    setError("");
+    setNotice("");
+    let added = 0;
+    try {
+      for (const file of files) {
+        const filePath = window.missionConsole.getPathForDroppedFile(file);
+        if (!filePath) throw new Error(t(`无法读取“${file.name}”的本地路径`, `Could not read the local path for “${file.name}”`));
+        await onAdd({
+          type: detectType(filePath, "auto"),
+          name: file.name || filePath.split(/[\\/]/).pop() || filePath,
+          content: filePath,
+        });
+        added += 1;
+      }
+      setNotice(t(`已添加 ${added} 个本地文件引用；磁盘原文件未移动。`, `Added ${added} local file reference(s); source files were not moved.`));
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      setError(added > 0
+        ? t(`已添加 ${added} 个文件，随后失败：${detail}`, `Added ${added} file(s), then failed: ${detail}`)
+        : detail);
+    } finally {
+      setDropping(false);
+      setDragActive(false);
     }
   };
 
@@ -210,13 +243,42 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
           );
         })}
         <button
+          type="button"
           onClick={() => setModalOpen(true)}
-          className="w-full mt-2 px-3 py-2 text-[11px] text-ink-faint hover:text-phosphor-400 text-left border border-dashed border-white/5 hover:border-phosphor-400/30 transition-all flex items-center gap-2"
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "link";
+            setDragActive(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            void addDroppedFiles(Array.from(event.dataTransfer.files));
+          }}
+          disabled={dropping}
+          className={cn(
+            "w-full mt-2 px-3 py-2 text-[11px] text-left border border-dashed transition-all flex items-center gap-2",
+            dragActive
+              ? "text-phosphor-400 border-phosphor-400/60 bg-phosphor-400/8"
+              : "text-ink-faint border-white/5 hover:text-phosphor-400 hover:border-phosphor-400/30",
+            dropping && "opacity-60 cursor-wait",
+          )}
         >
-          <Plus className="w-3 h-3" strokeWidth={1.5} />
-          {t("添加材料 / 拖拽至此", "Add material / drop here")}
+          {dropping ? <Loader2 className="w-3 h-3 animate-spin" /> : dragActive ? <Upload className="w-3 h-3" /> : <Plus className="w-3 h-3" strokeWidth={1.5} />}
+          {dropping
+            ? t("正在添加文件引用…", "Adding file references…")
+            : dragActive
+              ? t("松开以添加本地文件引用", "Drop to add local file references")
+              : t("添加材料 / 拖拽本地文件至此", "Add material / drop local files here")}
         </button>
         {error && <p className="px-2 py-1 text-[10px] text-coral">{error}</p>}
+        {notice && <p className="px-2 py-1 text-[10px] text-jade">{notice}</p>}
       </div>
 
       {/* 添加材料弹窗 */}
