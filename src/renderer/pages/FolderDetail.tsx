@@ -17,6 +17,7 @@ import TodoList from "@/components/folder-detail/TodoList";
 import MaterialList from "@/components/folder-detail/MaterialList";
 import TimelineView from "@/components/folder-detail/TimelineView";
 import AgentControlPanel from "@/components/folder-detail/AgentControlPanel";
+import FolderNotes from "@/components/folder-detail/FolderNotes";
 import { countdown, relativeTime, shortTime, statusLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
@@ -209,28 +210,7 @@ export default function FolderDetail() {
                 onDelete={(materialId) => deleteMaterial(folder.id, materialId)}
               />
             </div>
-            <div className="panel shrink-0 h-[200px] overflow-hidden flex flex-col">
-              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                  <span className="w-1 h-1 bg-amber-400 animate-pulse-dot" />
-                  <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                    {t("笔记", "Notes")}
-                  </h3>
-                </div>
-                <span className="text-[9px] data-mono text-ink-faint">DRAFT</span>
-              </div>
-              <div className="flex-1 p-3 overflow-y-auto">
-                <textarea
-                  placeholder={t("在此记录想法、引用材料或链接待办…", "Capture thoughts, reference material, or linked todos…")}
-                  className="w-full h-full bg-transparent text-[12px] text-ink placeholder:text-ink-faint focus:outline-none resize-none leading-relaxed"
-                  defaultValue={
-                    folder.id === "f-001"
-                      ? "13 笔跨境差异集中于 8 月汇率波动窗口，已请求财务复核。\n\n关键引用：\n- Q3-营收明细表.xlsx\n- 待办「核对跨境结算差异」"
-                      : t("在此记录关键想法与决策…", "Record key ideas and decisions here…")
-                  }
-                />
-              </div>
-            </div>
+            <FolderNotes folderId={folder.id} materials={folder.materials} disabled={folder.status === "archived"} />
           </div>
 
           {/* 右：Agent 面板 + 时间线 */}

@@ -26,6 +26,7 @@ import {
   toggleAgent,
   toggleTodo,
   updateAgentConfig,
+  updateNoteMaterial,
 } from "../src/core/services/mutationService";
 import {
   createWorkflow,
@@ -126,8 +127,25 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
     });
     assert.equal(getFolderDetail(folder.id)?.materials[0]?.id, material.id);
 
+    const note = addMaterial(folder.id, {
+      type: "note",
+      name: "任务舱笔记",
+      content: "初始内容",
+    });
+    const updatedNote = updateNoteMaterial(folder.id, note.id, "更新后的内容");
+    assert.equal(updatedNote.content, "更新后的内容");
+    assert.equal(
+      getFolderDetail(folder.id)?.materials.find((item) => item.id === note.id)?.content,
+      "更新后的内容",
+    );
+    assert.throws(
+      () => updateNoteMaterial(otherFolder.id, note.id, "跨舱修改"),
+      /不属于当前任务舱/,
+    );
+
     assert.throws(() => deleteFolder(folder.id), /必须先归档/);
     assert.equal(deleteMaterial(folder.id, material.id), true);
+    assert.equal(deleteMaterial(folder.id, note.id), true);
     assert.equal(getFolderDetail(folder.id)?.materials.length, 0);
 
     setFolderStatus(folder.id, "archived");

@@ -56,6 +56,7 @@ interface MissionState {
   setCopilotOpen: (open: boolean) => void;
   runCopilotAction: (messageId: string, actionId: string) => void;
   addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => Promise<Material>;
+  updateNoteMaterial: (folderId: string, materialId: string, content: string) => Promise<Material>;
   deleteMaterial: (folderId: string, materialId: string) => Promise<boolean>;
   pushNotification: (n: Omit<AgentNotification, "id" | "timestamp" | "read">) => void;
   markNotificationRead: (id: string) => void;
@@ -400,6 +401,20 @@ export const useMissionStore = create<MissionState>((set, get) => ({
           ? refreshed ?? { ...folder, materials: [material, ...folder.materials] }
           : folder,
       ),
+    }));
+    return material;
+  },
+
+  updateNoteMaterial: async (folderId, materialId, content) => {
+    const material = await window.missionConsole.updateNoteMaterial(folderId, materialId, content);
+    const refreshed = await window.missionConsole.getFolder(folderId);
+    set((state) => ({
+      folders: state.folders.map((folder) => folder.id === folderId
+        ? refreshed ?? {
+            ...folder,
+            materials: folder.materials.map((item) => item.id === materialId ? material : item),
+          }
+        : folder),
     }));
     return material;
   },

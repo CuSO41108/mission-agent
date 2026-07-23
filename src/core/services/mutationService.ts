@@ -312,6 +312,29 @@ export function addMaterial(
   return newMaterial;
 }
 
+/** 更新已有笔记材料；文件和链接引用不通过此入口修改。 */
+export function updateNoteMaterial(folderId: string, materialId: string, content: string): Material {
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (folder.status === "archived") throw new Error("已归档任务舱不能修改笔记");
+  const note = MaterialRepository.listByFolder(folderId).find((material) => material.id === materialId);
+  if (!note || note.type !== "note") throw new Error("笔记不存在或不属于当前任务舱");
+
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    if (!MaterialRepository.updateNote(folderId, materialId, content)) {
+      throw new Error("笔记保存失败");
+    }
+    logTimeline(folderId, "human", "更新任务舱笔记", { materialId });
+    db.exec("COMMIT;");
+    return { ...note, content };
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+}
+
 /** 删除材料引用及其记录，不删除本地源文件。 */
 export function deleteMaterial(folderId: string, materialId: string): boolean {
   const db = getDb();
