@@ -7,7 +7,7 @@
  * 每次启动时 migrate 会比对 SCHEMA_VERSION 常量
  * 若低于当前版本，则执行新增的建表语句
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CREATE_SCHEMA_VERSION_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_version (

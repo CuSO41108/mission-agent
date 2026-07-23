@@ -22,6 +22,7 @@ import { countdown, relativeTime, shortTime, statusLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 import { accentTint, themeAccent } from "@/lib/theme";
+import { flattenTodos } from "@/lib/missionStats";
 
 export default function FolderDetail() {
   const { locale, text: t } = usePreferences();
@@ -48,6 +49,25 @@ export default function FolderDetail() {
       navigate("/folders");
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const completeFolder = async () => {
+    if (!folder) return;
+    const incompleteCount = flattenTodos(folder.todos).filter((todo) => !todo.done).length;
+    if (incompleteCount > 0) {
+      const confirmed = window.confirm(
+        t(
+          `完成任务舱会同时完成其中 ${incompleteCount} 条未完成待办，并将进度更新为 100%。确定继续吗？`,
+          `Completing this folder will also complete ${incompleteCount} unfinished todo(s) and set progress to 100%. Continue?`,
+        ),
+      );
+      if (!confirmed) return;
+    }
+    try {
+      await setFolderStatus(folder.id, "done");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -174,7 +194,7 @@ export default function FolderDetail() {
                     )}
                   </button>
                   <button
-                    onClick={() => setFolderStatus(folder.id, "done")}
+                    onClick={() => void completeFolder()}
                     className="btn-ghost"
                   >
                     <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} /> {t("完成", "Complete")}

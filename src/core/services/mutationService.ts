@@ -125,7 +125,7 @@ export function deleteFolder(folderId: string): boolean {
  * 更新 folder 状态
  * - 写入 folders 表
  * - 写 timeline
- * - 如果是 done，自动把 progress 设为 100
+ * - 如果是 done，递归完成舱内全部待办并把 progress 设为 100
  */
 export function setFolderStatus(
   folderId: string,
@@ -137,18 +137,37 @@ export function setFolderStatus(
   if (!("active paused done archived".split(" ") as FolderStatus[]).includes(status)) {
     throw new Error("任务舱状态无效");
   }
+  const newlyCompletedTodos = status === "done"
+    ? TodoRepository.listByFolder(folderId).filter((todo) => !todo.done)
+    : [];
   const db = getDb();
   db.exec("BEGIN;");
   try {
+    if (status === "done") TodoRepository.markAllDone(folderId);
     FolderRepository.updateStatus(folderId, status);
-    FolderRepository.updateProgress(folderId, calculateFolderProgress(folderId));
-    logTimeline(folderId, actor, `状态变更为 ${status}`, { status });
+    const progress = status === "done" ? 100 : calculateFolderProgress(folderId);
+    FolderRepository.updateProgress(folderId, progress);
+    logTimeline(folderId, actor, `状态变更为 ${status}`, {
+      status,
+      completedTodoCount: newlyCompletedTodos.length,
+      progress,
+    });
     db.exec("COMMIT;");
   } catch (error) {
     db.exec("ROLLBACK;");
     throw error;
   }
   const updated = getFolderDetail(folderId);
+  for (const todo of newlyCompletedTodos) {
+    emitWorkflowEvent({
+      type: "todo_completed",
+      folderId,
+      todoId: todo.id,
+      text: todo.title,
+      assignee: todo.assignee,
+      timestamp: Date.now(),
+    });
+  }
   emitWorkflowEvent({
     type: "folder_status_changed",
     folderId,

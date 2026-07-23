@@ -106,15 +106,18 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
     assert.equal(parentDone.todos[0].done, true);
     assert.equal(parentDone.progress, 50);
     const markedDone = setFolderStatus(folder.id, "done");
-    assert.equal(markedDone?.progress, 50);
+    assert.equal(markedDone?.progress, 100);
+    assert.equal(markedDone?.todos[0].subtasks[0].done, true);
     const reopened = setFolderStatus(folder.id, "active");
-    assert.equal(reopened?.progress, 50);
+    assert.equal(reopened?.progress, 100);
 
-    getDb().prepare("UPDATE folders SET progress = 100 WHERE id = ?;").run(folder.id);
+    getDb().prepare("UPDATE todos SET done = 0 WHERE id = ?;").run(withChild.todos[0].subtasks[0].id);
+    getDb().prepare("UPDATE folders SET status = 'done', progress = 50 WHERE id = ?;").run(folder.id);
     getDb().exec("DELETE FROM schema_version;");
-    getDb().prepare("INSERT INTO schema_version (version, applied_at) VALUES (3, ?);").run(Date.now());
+    getDb().prepare("INSERT INTO schema_version (version, applied_at) VALUES (4, ?);").run(Date.now());
     migrateDatabase();
-    assert.equal(getFolderDetail(folder.id)?.progress, 50);
+    assert.equal(getFolderDetail(folder.id)?.progress, 100);
+    assert.equal(getFolderDetail(folder.id)?.todos[0].subtasks[0].done, true);
 
     const enabled = toggleAgent(folder.id, true);
     assert.equal(enabled.agentConfig.enabled, true);
