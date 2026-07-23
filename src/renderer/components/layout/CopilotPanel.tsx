@@ -19,11 +19,13 @@ import {
   Check,
   Loader2,
   Database,
+  FilePlus2,
+  X,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { CopilotMessage, CopilotReference } from "@/types";
+import type { CopilotMessage, CopilotMode, CopilotReference } from "@/types";
 import { usePreferences } from "@/i18n";
 
 const REF_ICON = {
@@ -140,6 +142,61 @@ function ActionButton({
   );
 }
 
+function DraftPreview({ message }: { message: CopilotMessage }) {
+  const { text: t } = usePreferences();
+  const applyCopilotDraft = useMissionStore((state) => state.applyCopilotDraft);
+  const cancelCopilotDraft = useMissionStore((state) => state.cancelCopilotDraft);
+  const [applying, setApplying] = useState(false);
+  const draft = message.draft;
+  if (!draft) return null;
+
+  const confirm = async () => {
+    setApplying(true);
+    try {
+      await applyCopilotDraft(message.id);
+    } finally {
+      setApplying(false);
+    }
+  };
+  const pending = message.draftStatus === "pending";
+  const applied = message.draftStatus === "applied";
+  return (
+    <section className="border border-violet/35 bg-violet/5 px-3 py-2.5 text-[10px]">
+      <div className="flex items-center gap-1.5 text-violet">
+        <FilePlus2 className="w-3 h-3" />
+        <span className="font-medium">{draft.kind === "folder" ? t("任务舱创建草稿", "Folder creation draft") : t("工作流创建草稿", "Workflow creation draft")}</span>
+      </div>
+      {draft.kind === "folder" ? (
+        <div className="mt-2 space-y-1 text-ink-muted">
+          <p>{t("名称：", "Name: ")}{draft.input.name}</p>
+          <p>{t("分类：", "Category: ")}{draft.input.category} · {draft.input.priority}</p>
+          <p>{t("待办：", "Todos: ")}{draft.todos.length ? draft.todos.map((todo) => todo.title).join("；") : t("未生成待办", "No todos")}</p>
+        </div>
+      ) : (
+        <div className="mt-2 space-y-1 text-ink-muted">
+          <p>{t("名称：", "Name: ")}{draft.input.name}</p>
+          <p>{t("触发：手动运行；初始为禁用", "Trigger: manual; initially disabled")}</p>
+          <p>{t("动作：", "Actions: ")}{draft.input.actions.map((action) => action.label).join("；")}</p>
+        </div>
+      )}
+      {pending && (
+        <div className="mt-2.5 flex gap-2">
+          <button type="button" onClick={() => void confirm()} disabled={applying} className="btn-phosphor h-7 disabled:opacity-50">
+            {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+            {applying ? t("创建中", "Creating") : t("确认创建", "Confirm create")}
+          </button>
+          <button type="button" onClick={() => cancelCopilotDraft(message.id)} disabled={applying} className="btn-ghost h-7">
+            <X className="w-3 h-3" /> {t("取消", "Cancel")}
+          </button>
+        </div>
+      )}
+      {applied && <p className="mt-2 text-jade">{t("已创建到本地数据库。", "Created in the local database.")}</p>}
+      {message.draftStatus === "cancelled" && <p className="mt-2 text-ink-faint">{t("已取消，未写入任何数据。", "Cancelled; no data was written.")}</p>}
+      {message.draftStatus === "failed" && <p className="mt-2 text-coral">{message.draftError}</p>}
+    </section>
+  );
+}
+
 function MessageBubble({ m }: { m: CopilotMessage }) {
   const { text: t } = usePreferences();
   const navigate = useNavigate();
@@ -233,6 +290,8 @@ function MessageBubble({ m }: { m: CopilotMessage }) {
           </div>
         )}
 
+        <DraftPreview message={m} />
+
         {/* 元信息 */}
         <span className="text-[9px] data-mono text-ink-faint px-1 flex items-center gap-1.5">
           <span>{shortTime(m.timestamp)}</span>
@@ -259,6 +318,7 @@ export default function CopilotPanel() {
   const send = useMissionStore((s) => s.sendCopilot);
   const clear = useMissionStore((s) => s.clearCopilot);
   const [input, setInput] = useState("");
+  const [mode, setMode] = useState<CopilotMode>("local");
   const scrollRef = useRef<HTMLDivElement>(null);
   const quickCmds = [
     { icon: Activity, label: t("今日进度", "Today’s progress"), text: t("今日整体进度如何？", "How is overall progress today?") },
@@ -273,10 +333,10 @@ export default function CopilotPanel() {
     }
   }, [messages]);
 
-  const handleSend = (text?: string) => {
+  const handleSend = (text?: string, requestedMode = mode) => {
     const content = (text ?? input).trim();
     if (!content || streaming) return;
-    send(content);
+    void send(content, requestedMode);
     setInput("");
   };
 
@@ -290,11 +350,17 @@ export default function CopilotPanel() {
           </div>
           <div>
             <h3 className="font-display text-[12px] font-semibold text-ink leading-none">
-              {t("本地任务助手", "Local task assistant")}
+              {t("任务助手", "Task assistant")}
             </h3>
             <p className="text-[9px] text-ink-faint mt-1.5 leading-none flex items-center gap-1">
               <span className={cn("w-1.5 h-1.5 rounded-full", streaming ? "bg-amber-400 animate-pulse-dot" : "bg-jade")} />
-              {streaming ? t("正在读取", "Reading") : t("仅使用本地数据", "Local data only")}
+              {streaming
+                ? t("正在请求模型", "Calling model")
+                : mode === "local"
+                  ? t("本地查询，不调用模型", "Local query; no model")
+                  : mode === "analysis"
+                    ? t("智能分析，显式调用模型", "Smart analysis; explicit model call")
+                    : t("创建草稿，确认后才写入", "Draft creation; writes after confirmation")}
             </p>
           </div>
         </div>
@@ -324,7 +390,7 @@ export default function CopilotPanel() {
         {quickCmds.map((c) => (
           <button
             key={c.label}
-            onClick={() => handleSend(c.text)}
+            onClick={() => handleSend(c.text, "local")}
             disabled={streaming}
             className={cn(
               "flex items-center gap-1 px-2 py-1 text-[10px] border rounded transition-colors",
@@ -341,13 +407,40 @@ export default function CopilotPanel() {
 
       {/* 输入 */}
       <div className="p-3 border-t border-obsidian-700">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {([
+            ["local", t("本地查询", "Local query")],
+            ["analysis", t("智能分析", "Smart analysis")],
+            ["draft", t("创建草稿", "Create draft")],
+          ] as Array<[CopilotMode, string]>).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              disabled={streaming}
+              className={cn(
+                "px-2 py-1 text-[10px] border rounded transition-colors",
+                mode === value ? "border-phosphor-400/55 bg-phosphor-400/10 text-phosphor-300" : "border-obsidian-700 text-ink-faint hover:text-ink",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          {mode !== "local" && <span className="self-center text-[9px] text-amber-500">{t("发送后将调用模型 API", "Sending calls the model API")}</span>}
+        </div>
         <div className="relative group">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             disabled={streaming}
-            placeholder={streaming ? t("正在读取本地数据…", "Reading local data…") : t("查询本地任务数据…", "Query local task data…")}
+            placeholder={streaming
+              ? t("正在请求模型…", "Calling model…")
+              : mode === "local"
+                ? t("查询本地任务数据…", "Query local task data…")
+                : mode === "analysis"
+                  ? t("例如：总结今天完成任务的共性与下一步建议…", "For example: summarize today's completed work and suggest next steps…")
+                  : t("例如：新建一个下周客户演示的任务舱…", "For example: create a folder for next week's client demo…")}
             className={cn(
               "w-full pl-3 pr-10 py-2.5 bg-obsidian-800 border rounded text-[12px] text-ink placeholder:text-ink-faint focus:outline-none transition-colors",
               streaming
