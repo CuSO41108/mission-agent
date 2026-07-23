@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
-  Sparkles,
   Bot,
   User,
   Zap,
@@ -19,6 +18,7 @@ import {
   Mail,
   Check,
   Loader2,
+  Database,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
@@ -135,7 +135,7 @@ function ActionButton({
       ) : (
         <Zap className="w-2.5 h-2.5" strokeWidth={1.5} />
       )}
-      {done ? t("已执行", "Executed") : label}
+      {done ? t("已打开", "Opened") : label}
     </button>
   );
 }
@@ -218,11 +218,15 @@ function MessageBubble({ m }: { m: CopilotMessage }) {
                 variant={a.variant}
                 done={a.done}
                 onClick={() => {
+                  const routes: Record<string, string> = {
+                    open_dashboard: "/",
+                    open_folders: "/folders",
+                    create_folder: "/folders?create=1",
+                    open_integrations: "/integrations",
+                  };
+                  const route = routes[a.command];
+                  if (route) navigate(route);
                   runCopilotAction(m.id, a.id);
-                  // 简单路由：根据 command 做跳转
-                  if (a.command.includes("查看") || a.command.includes("详情") || a.command.includes("进度")) {
-                    navigate("/");
-                  }
                 }}
               />
             ))}
@@ -253,13 +257,14 @@ export default function CopilotPanel() {
   const messages = useMissionStore((s) => s.copilotMessages);
   const streaming = useMissionStore((s) => s.copilotStreaming);
   const send = useMissionStore((s) => s.sendCopilot);
+  const clear = useMissionStore((s) => s.clearCopilot);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const quickCmds = [
     { icon: Activity, label: t("今日进度", "Today’s progress"), text: t("今日整体进度如何？", "How is overall progress today?") },
-    { icon: Zap, label: t("催办紧急", "Chase urgent work"), text: t("催办今日截止的紧急任务", "Follow up on urgent tasks due today") },
-    { icon: ListChecks, label: t("生成待办", "Generate todos"), text: t("为新品发布舱生成待办清单", "Generate a todo list for the product launch folder") },
-    { icon: Plus, label: t("新建舱体", "New folder"), text: t("新建一个舱体：下周客户演示", "Create a folder: client demo next week") },
+    { icon: Zap, label: t("需跟进任务", "Needs attention"), text: t("查看临期和逾期任务", "Show tasks due soon or overdue") },
+    { icon: ListChecks, label: t("任务舱列表", "Folders"), text: t("查看当前任务舱", "Show current folders") },
+    { icon: Plus, label: t("新建舱体", "New folder"), text: t("新建任务舱", "Create a folder") },
   ];
 
   useEffect(() => {
@@ -285,22 +290,25 @@ export default function CopilotPanel() {
           </div>
           <div>
             <h3 className="font-display text-[12px] font-semibold text-ink leading-none">
-              {t("AI 副驾", "AI copilot")}
+              {t("本地任务助手", "Local task assistant")}
             </h3>
             <p className="text-[9px] text-ink-faint mt-1.5 leading-none flex items-center gap-1">
               <span className={cn("w-1.5 h-1.5 rounded-full", streaming ? "bg-amber-400 animate-pulse-dot" : "bg-jade")} />
-              {streaming ? t("正在思考", "Thinking") : t("已就绪", "Ready")}
+              {streaming ? t("正在读取", "Reading") : t("仅使用本地数据", "Local data only")}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={clear}
+            disabled={streaming}
             className="text-[10px] text-ink-faint hover:text-ink transition-colors border border-obsidian-700 rounded hover:bg-obsidian-850 px-2 py-1"
             title={t("清空上下文", "Clear context")}
           >
             {t("清空", "Clear")}
           </button>
-          <Sparkles className="w-3.5 h-3.5 text-phosphor-400/60" strokeWidth={1.5} />
+          <Database className="w-3.5 h-3.5 text-phosphor-400/60" strokeWidth={1.5} />
         </div>
       </header>
 
@@ -339,7 +347,7 @@ export default function CopilotPanel() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             disabled={streaming}
-            placeholder={streaming ? t("Agent 思考中…", "Agent is thinking…") : t("下达指令…", "Give an instruction…")}
+            placeholder={streaming ? t("正在读取本地数据…", "Reading local data…") : t("查询本地任务数据…", "Query local task data…")}
             className={cn(
               "w-full pl-3 pr-10 py-2.5 bg-obsidian-800 border rounded text-[12px] text-ink placeholder:text-ink-faint focus:outline-none transition-colors",
               streaming
