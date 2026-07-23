@@ -10,12 +10,17 @@ import ProgressRing from "@/components/ui/ProgressRing";
 import { shortTime } from "@/lib/format";
 import { usePreferences } from "@/i18n";
 import { themeAccent } from "@/lib/theme";
+import {
+  activitiesInLast24Hours,
+  buildAgentActivities,
+  countTodos,
+} from "@/lib/missionStats";
 
 export default function Dashboard() {
   const { text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
   const visibleFolders = folders.filter((folder) => folder.status !== "archived");
-  const activities = useMissionStore((s) => s.agentActivities);
+  const activities = activitiesInLast24Hours(buildAgentActivities(visibleFolders));
 
   // 今日焦点：1 大 + 3 小
   const activeFolders = visibleFolders
@@ -25,14 +30,16 @@ export default function Dashboard() {
   const minis = activeFolders.slice(1, 4);
 
   // 全局进度
-  const globalProgress = Math.round(
-    visibleFolders.reduce((s, f) => s + f.progress, 0) / Math.max(visibleFolders.length, 1)
+  const todoCounts = visibleFolders.reduce(
+    (total, folder) => {
+      const folderCounts = countTodos(folder.todos);
+      return { total: total.total + folderCounts.total, done: total.done + folderCounts.done };
+    },
+    { total: 0, done: 0 },
   );
-  const totalTodos = visibleFolders.reduce((s, f) => s + f.todos.length, 0);
-  const doneTodos = visibleFolders.reduce(
-    (s, f) => s + f.todos.filter((t) => t.done).length,
-    0
-  );
+  const totalTodos = todoCounts.total;
+  const doneTodos = todoCounts.done;
+  const globalProgress = Math.round((doneTodos / Math.max(totalTodos, 1)) * 100);
 
   // 分舱进度段
   const segments = activeFolders.slice(0, 6).map((f) => ({
@@ -57,8 +64,8 @@ export default function Dashboard() {
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
             {t(
-              `当前 ${activeFolders.length} 个舱体活跃，${activities.length} 条 Agent 事件待审。建议优先处理今日截止事项。`,
-              `${activeFolders.length} active folders and ${activities.length} Agent events are awaiting review. Prioritize today's deadlines.`,
+              `当前 ${activeFolders.length} 个舱体活跃，过去 24 小时有 ${activities.length} 条 Agent 运行记录。建议优先处理今日截止事项。`,
+              `${activeFolders.length} active folders and ${activities.length} Agent events in the last 24 hours. Prioritize today's deadlines.`,
             )}
           </p>
         </div>

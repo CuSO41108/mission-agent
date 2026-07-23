@@ -16,6 +16,7 @@ import { useMissionStore } from "@/store/useMissionStore";
 import { shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
+import { countTodos } from "@/lib/missionStats";
 
 interface TodoListProps {
   folderId: string;
@@ -161,7 +162,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
     );
   };
 
-  const doneCount = todos.filter((t) => t.done).length;
+  const todoCounts = countTodos(todos);
 
   return (
     <div className="flex flex-col h-full">
@@ -173,7 +174,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
           </h3>
         </div>
         <span className="text-[10px] data-mono text-ink-faint">
-          {doneCount}/{todos.length} · {todos.length - doneCount} OPEN
+          {todoCounts.done}/{todoCounts.total} · {todoCounts.total - todoCounts.done} OPEN
         </span>
       </div>
       <div className="flex-1 overflow-y-auto py-2 space-y-0.5">

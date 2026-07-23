@@ -9,22 +9,12 @@ import {
   Shield,
   Activity,
   CheckCircle2,
-  RotateCcw,
-  Cpu,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import { relativeTime, shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
-
-const AUDIT_LOG = [
-  { id: 1, time: Date.now() - 22 * 60000, action: "Agent「Q3 财务复盘」拉取 Stripe 对账单", type: "sync", actor: "f-001" },
-  { id: 2, time: Date.now() - 2 * 3600000, action: "Agent「新品发布」草拟 4 渠道文案", type: "create", actor: "f-002" },
-  { id: 3, time: Date.now() - 3 * 3600000, action: "Agent「Q3 财务复盘」通知财务确认", type: "notify", actor: "f-001" },
-  { id: 4, time: Date.now() - 5 * 3600000, action: "Agent「健身计划」推送饮食记录提醒", type: "warn", actor: "f-006" },
-  { id: 5, time: Date.now() - 8 * 3600000, action: "Agent「周会」归档会议纪要", type: "update", actor: "f-004" },
-  { id: 6, time: Date.now() - 12 * 3600000, action: "Agent「新品发布」同步进度至飞书", type: "sync", actor: "f-002" },
-];
+import { buildAgentActivities, isAgentOnline, isVisibleFolder } from "@/lib/missionStats";
 
 const TYPE_COLOR: Record<string, string> = {
   sync: "rgb(var(--phosphor-400))",
@@ -37,16 +27,15 @@ const TYPE_COLOR: Record<string, string> = {
 export default function Agents() {
   const { locale, text: t } = usePreferences();
   const folders = useMissionStore((s) => s.folders);
-  const activeAgents = folders.filter((f) => f.agentConfig.enabled);
-  const totalActions = folders.reduce(
-    (s, f) => s + f.timeline.filter((t) => t.actor === "agent").length,
-    0
-  );
+  const managedFolders = folders.filter(isVisibleFolder);
+  const activeAgents = managedFolders.filter(isAgentOnline);
+  const activities = buildAgentActivities(managedFolders);
+  const totalActions = activities.length;
   const strategies = [
-    { key: "follow_up", label: t("每日跟进", "Daily follow-up"), desc: t("在每个舱体截止前主动提醒，滚动推进待办", "Proactively remind before deadlines and advance todos."), runs: 142 },
-    { key: "material_collect", label: t("材料归集", "Material collection"), desc: t("从邮件/社交接口拉取相关材料并归类入库", "Collect relevant material from email and social integrations."), runs: 87 },
-    { key: "progress_sync", label: t("进度播报", "Progress digest"), desc: t("每日固定时间同步进度至接口与副驾面板", "Sync progress to integrations and the copilot at a set time."), runs: 36 },
-    { key: "custom", label: t("自定义规则", "Custom rule"), desc: t("按工作流规则组合执行，含跨舱联动", "Compose workflow rules, including cross-folder actions."), runs: 12 },
+    { key: "follow_up", label: t("每日跟进", "Daily follow-up"), desc: t("检查截止时间与停滞事项，按权限发送应用内提醒。", "Check deadlines and stalled work, then send permitted in-app reminders.") },
+    { key: "material_collect", label: t("材料归集", "Material collection"), desc: t("检查并整理任务舱内已经挂载的本地材料。", "Review and organize local materials already attached to the folder.") },
+    { key: "progress_sync", label: t("进度播报", "Progress digest"), desc: t("根据真实待办和时间线生成本地进度摘要。", "Create a local progress digest from real todos and timeline entries.") },
+    { key: "custom", label: t("自定义规则", "Custom rule"), desc: t("按照已配置的本地工作流执行任务。", "Run tasks through a configured local workflow.") },
   ];
   const permissions = [
     { key: "read", label: t("读取", "Read"), icon: Eye },
@@ -61,23 +50,17 @@ export default function Agents() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <p className="text-[11px] text-ink-faint mb-1">
-            {t("自动执行与审计", "Automation and audit")}
+            {t("自动执行与记录", "Automation and history")}
           </p>
           <h1 className="font-display font-semibold text-2xl text-ink">
             Agent <span className="text-ink-faint">{activeAgents.length}</span>
           </h1>
           <p className="text-[12px] text-ink-muted mt-1">
             {t(
-              `${activeAgents.length} 个 Agent 在线 · 累计执行 ${totalActions} 次自主动作 · 全程审计可回滚`,
-              `${activeAgents.length} Agents online · ${totalActions} autonomous actions · all changes are auditable and reversible`,
+              `${activeAgents.length} 个 Agent 在线 · 数据库记录 ${totalActions} 次 Agent 动作`,
+              `${activeAgents.length} Agents online · ${totalActions} Agent actions recorded in the database`,
             )}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 border border-obsidian-700 rounded bg-obsidian-800">
-            <Cpu className="w-3 h-3 text-ink-faint" strokeWidth={1.5} />
-            <span className="text-[10px] data-mono text-ink-muted">CPU 42% · MEM 1.2G</span>
-          </div>
         </div>
       </div>
 
@@ -93,11 +76,14 @@ export default function Agents() {
                 </h3>
               </div>
               <span className="text-[9px] data-mono text-ink-faint">
-                {activeAgents.length} ACTIVE / {folders.length} TOTAL
+                {activeAgents.length} ACTIVE / {managedFolders.length} TOTAL
               </span>
             </div>
             <div className="p-3 space-y-2">
-              {folders.map((f, idx) => (
+              {managedFolders.map((f, idx) => {
+                const online = isAgentOnline(f);
+                const stateLabel = online ? "ACTIVE" : f.agentConfig.enabled ? f.status.toUpperCase() : "STANDBY";
+                return (
                 <motion.div
                   key={f.id}
                   initial={{ opacity: 0, x: -8 }}
@@ -105,7 +91,7 @@ export default function Agents() {
                   transition={{ delay: idx * 0.03 }}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 border transition-all",
-                    f.agentConfig.enabled
+                    online
                       ? "border-phosphor-400/25 bg-phosphor-400/3"
                       : "border-white/5 opacity-60"
                   )}
@@ -113,13 +99,13 @@ export default function Agents() {
                   <div
                     className={cn(
                       "relative w-8 h-8 flex items-center justify-center border rounded shrink-0",
-                      f.agentConfig.enabled
+                      online
                         ? "border-phosphor-400/50 bg-phosphor-400/8"
                         : "border-ink-faint/30"
                     )}
                   >
                     <Bot
-                      className={cn("w-3.5 h-3.5", f.agentConfig.enabled ? "text-phosphor-400" : "text-ink-faint")}
+                      className={cn("w-3.5 h-3.5", online ? "text-phosphor-400" : "text-ink-faint")}
                       strokeWidth={1.5}
                     />
                   </div>
@@ -153,15 +139,16 @@ export default function Agents() {
                   <span
                     className={cn(
                       "chip shrink-0",
-                      f.agentConfig.enabled
+                      online
                         ? "border-jade/40 text-jade bg-jade/5"
                         : "border-ink-faint/30 text-ink-faint"
                     )}
                   >
-                    {f.agentConfig.enabled ? "ACTIVE" : "STANDBY"}
+                    {stateLabel}
                   </span>
                 </motion.div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -179,11 +166,13 @@ export default function Agents() {
               {strategies.map((s) => (
                 <div
                   key={s.key}
-                  className="px-3 py-2.5 border border-white/5 hover:border-phosphor-400/30 hover:bg-phosphor-400/3 transition-all cursor-pointer"
+                  className="px-3 py-2.5 border border-white/5"
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[12px] font-medium text-ink">{s.label}</span>
-                    <span className="text-[9px] data-mono text-phosphor-400">{s.runs}x</span>
+                    <span className="text-[9px] data-mono text-phosphor-400">
+                      {managedFolders.filter((folder) => folder.agentConfig.strategy === s.key).length} {t("个舱体", "folders")}
+                    </span>
                   </div>
                   <p className="text-[10px] text-ink-faint leading-snug">{s.desc}</p>
                 </div>
@@ -192,22 +181,18 @@ export default function Agents() {
           </div>
         </div>
 
-        {/* 右：审计日志 */}
+        {/* 右：真实 Agent 运行记录 */}
         <div className="col-span-12 lg:col-span-5 panel flex flex-col h-[calc(100vh-200px)] sticky top-4 self-start">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
             <div className="flex items-center gap-2">
               <Shield className="w-3 h-3 text-violet" strokeWidth={1.5} />
               <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-                {t("审计日志", "Audit log")} · AUDIT
+                {t("运行记录", "Run history")} · LOCAL DB
               </h3>
             </div>
-            <button className="flex items-center gap-1 text-[9px] data-mono text-ink-faint hover:text-phosphor-400 transition-colors">
-              <RotateCcw className="w-2.5 h-2.5" strokeWidth={1.5} />
-              ROLLBACK
-            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {AUDIT_LOG.map((log) => {
+            {activities.map((log) => {
               const color = TYPE_COLOR[log.type];
               return (
                 <div
@@ -222,25 +207,27 @@ export default function Agents() {
                     <p className="text-[11px] text-ink leading-snug">{log.action}</p>
                     <div className="flex items-center gap-2 mt-1 text-[9px] data-mono text-ink-faint">
                       <span style={{ color }}>{log.type.toUpperCase()}</span>
-                      <span>· {log.actor.toUpperCase()}</span>
-                      <span>· {shortTime(log.time)}</span>
+                      <span>· {log.folderName}</span>
+                      <span>· {shortTime(log.timestamp)}</span>
                     </div>
                   </div>
-                  <button className="opacity-0 group-hover:opacity-100 text-[9px] data-mono text-coral hover:underline transition-opacity">
-                    {t("回滚", "Rollback")}
-                  </button>
                 </div>
               );
             })}
+            {activities.length === 0 && (
+              <div className="h-full min-h-40 flex items-center justify-center text-center text-[11px] text-ink-faint px-6">
+                {t("暂无 Agent 运行记录。执行后会从本地时间线显示在这里。", "No Agent run history yet. Runs will appear here from the local timeline.")}
+              </div>
+            )}
           </div>
           <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between text-[9px] data-mono text-ink-faint">
             <span className="flex items-center gap-1.5">
               <Activity className="w-2.5 h-2.5 text-jade" strokeWidth={1.5} />
-              {t("完整性校验通过", "Integrity check passed")}
+              {t("来源：本地任务舱时间线", "Source: local folder timelines")}
             </span>
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="w-2.5 h-2.5 text-jade" strokeWidth={1.5} />
-              {AUDIT_LOG.length} ENTRIES
+              {activities.length} ENTRIES
             </span>
           </div>
         </div>

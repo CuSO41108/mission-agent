@@ -13,7 +13,7 @@ import { PreferencesProvider } from "@/i18n";
 
 export default function App() {
   // 应用启动时从 SQLite 拉取初始数据（Phase 3：folder/integration/workflow）
-  // copilot/notification/agentActivity 仍用 mock，留到后续 Phase 接入
+  // Copilot 仍是本地演示；任务舱、工作流和 Agent 运行记录均来自 SQLite。
   const loadFromDb = useMissionStore((s) => s.loadFromDb);
   const refreshFolders = useMissionStore((s) => s.refreshFolders);
   const refreshWorkflows = useMissionStore((s) => s.refreshWorkflows);

@@ -1,6 +1,7 @@
 import { Inbox, CheckCircle2, Bot, Zap } from "lucide-react";
 import type { TaskFolder, AgentActivity } from "@/types";
 import { usePreferences } from "@/i18n";
+import { isAgentOnline } from "@/lib/missionStats";
 
 interface StatStripProps {
   folders: TaskFolder[];
@@ -11,7 +12,7 @@ export default function StatStrip({ folders, activities }: StatStripProps) {
   const { text: t } = usePreferences();
   const active = folders.filter((f) => f.status === "active").length;
   const done = folders.filter((f) => f.status === "done").length;
-  const agentActive = folders.filter((f) => f.agentConfig.enabled).length;
+  const agentActive = folders.filter(isAgentOnline).length;
   const eventsToday = activities.length;
 
   const stats = [
