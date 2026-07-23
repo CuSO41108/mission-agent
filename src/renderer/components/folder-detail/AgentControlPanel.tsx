@@ -1,55 +1,181 @@
 import {
-  Bot,
-  Power,
-  Shield,
   Activity,
-  Zap,
-  Eye,
-  PencilLine,
+  AlertTriangle,
   Bell,
+  Bot,
+  CheckCircle2,
+  Clock3,
+  Eye,
+  FileOutput,
+  FolderOpen,
   ListPlus,
   Loader2,
+  PencilLine,
   PlayCircle,
+  Power,
+  Settings2,
+  Workflow,
+  XCircle,
+  Zap,
 } from "lucide-react";
-import { useState } from "react";
-import type { AgentConfig } from "@/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import type {
+  AgentConfig,
+  AgentTaskType,
+  TaskFolder,
+  WorkflowRun,
+} from "@/types";
 import { useMissionStore } from "@/store/useMissionStore";
-import { relativeTime } from "@/lib/format";
+import { flattenTodos } from "@/lib/missionStats";
+import { relativeTime, shortTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 
-interface AgentControlPanelProps {
-  folderId: string;
-  config: AgentConfig;
+interface SchedulerStatus {
+  scheduled: boolean;
+  running: boolean;
+  intervalMin: number;
+  nextRunAt: number | null;
 }
 
-export default function AgentControlPanel({ folderId, config }: AgentControlPanelProps) {
+interface AgentControlPanelProps {
+  folder: TaskFolder;
+}
+
+const TASK_LABELS: Record<AgentTaskType, string> = {
+  analysis: "分析建议",
+  artifact: "生成本地产物",
+  follow_up: "应用内跟进提醒",
+  material_organize: "整理本地材料",
+  progress_summary: "生成进度摘要",
+  workflow: "执行工作流",
+};
+
+const ARTIFACT_TASKS = new Set<AgentTaskType>([
+  "artifact",
+  "material_organize",
+  "progress_summary",
+]);
+
+export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
   const { locale, text: t } = usePreferences();
-  const toggleAgent = useMissionStore((s) => s.toggleAgent);
-  const updateAgentConfig = useMissionStore((s) => s.updateAgentConfig);
-  const runAgentOnce = useMissionStore((s) => s.runAgentOnce);
-  const workflows = useMissionStore((s) => s.workflows);
+  const config = folder.agentConfig;
+  const toggleAgent = useMissionStore((state) => state.toggleAgent);
+  const updateAgentConfig = useMissionStore((state) => state.updateAgentConfig);
+  const runAgentOnce = useMissionStore((state) => state.runAgentOnce);
+  const workflows = useMissionStore((state) => state.workflows);
   const [running, setRunning] = useState(false);
   const [runMessage, setRunMessage] = useState("");
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+
+  const pendingTodo = useMemo(
+    () => flattenTodos(folder.todos).find((todo) => todo.assignee === "agent" && !todo.done) ?? null,
+    [folder.todos],
+  );
+  const taskType = pendingTodo?.agentTaskType ?? "analysis";
+  const writesArtifact = Boolean(pendingTodo && ARTIFACT_TASKS.has(taskType));
+  const selectedWorkflowId = pendingTodo?.agentTaskType === "workflow"
+    ? pendingTodo.workflowId ?? null
+    : !pendingTodo && config.strategy === "custom"
+      ? config.workflowId ?? null
+      : null;
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
+
+  const latestAgentEvent = useMemo(
+    () => [...folder.timeline]
+      .filter((entry) => entry.actor === "agent" || typeof entry.meta?.errorCode === "string")
+      .sort((left, right) => right.timestamp - left.timestamp)[0] ?? null,
+    [folder.timeline],
+  );
+  const latestRunFailed = typeof latestAgentEvent?.meta?.errorCode === "string";
+  const latestArtifact = useMemo(
+    () => [...folder.materials]
+      .filter((material) => material.sourceIntegration === "agent")
+      .sort((left, right) => right.addedAt - left.addedAt)[0] ?? null,
+    [folder.materials],
+  );
+
+  const requiredPermissions = useMemo(() => {
+    const required: Array<keyof AgentConfig["permissions"]> = ["read"];
+    if (pendingTodo && taskType !== "analysis") required.push("write");
+    if (taskType === "follow_up") required.push("notify");
+    return required;
+  }, [pendingTodo, taskType]);
+  const missingPermissions = requiredPermissions.filter((permission) => !config.permissions[permission]);
+
+  const loadScheduler = useCallback(async () => {
+    try {
+      setScheduler(await window.missionConsole.getSchedulerStatus());
+    } catch {
+      setScheduler(null);
+    }
+  }, []);
+
+  const loadWorkflowRuns = useCallback(async () => {
+    if (!selectedWorkflowId) {
+      setWorkflowRuns([]);
+      return;
+    }
+    try {
+      const runs = await window.missionConsole.getWorkflowRuns(selectedWorkflowId);
+      setWorkflowRuns(runs.filter((run) => !run.folderId || run.folderId === folder.id));
+    } catch {
+      setWorkflowRuns([]);
+    }
+  }, [folder.id, selectedWorkflowId]);
+
+  useEffect(() => {
+    void loadScheduler();
+    const timer = window.setInterval(() => void loadScheduler(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [loadScheduler]);
+
+  useEffect(() => {
+    void loadWorkflowRuns();
+  }, [loadWorkflowRuns]);
 
   const runNow = async () => {
     if (running || !config.enabled) return;
     setRunning(true);
     setRunMessage("");
     try {
-      const result = await runAgentOnce(folderId);
-      setRunMessage(result.ok ? result.summary ?? t("执行完成", "Completed") : result.error ?? t("执行失败", "Failed"));
-    } catch (err) {
-      setRunMessage(err instanceof Error ? err.message : String(err));
+      const result = await runAgentOnce(folder.id);
+      setRunMessage(result.ok
+        ? result.summary ?? t("执行完成，结果已写入时间线。", "Completed. The result was added to the timeline.")
+        : result.error ?? t("执行失败", "Failed"));
+      await Promise.all([loadScheduler(), loadWorkflowRuns()]);
+    } catch (error) {
+      setRunMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setRunning(false);
     }
   };
-  const strategies: { key: AgentConfig["strategy"]; label: string; desc: string }[] = [
-    { key: "follow_up", label: t("跟进提醒", "Follow up"), desc: t("检查截止风险；开启通知权限后发送应用内提醒", "Check deadline risks and optionally notify inside the app.") },
-    { key: "material_collect", label: t("材料检查", "Check materials"), desc: t("仅检查当前已挂载的本地材料与缺口", "Inspect attached local materials and identify gaps.") },
-    { key: "progress_sync", label: t("进度摘要", "Progress summary"), desc: t("基于本地待办生成进度摘要，不向第三方发送", "Summarize local progress without external delivery.") },
-    { key: "custom", label: t("自定义", "Custom"), desc: t("按工作流规则执行", "Run according to workflow rules.") },
+
+  const applyRequiredPermissions = async () => {
+    const permissions = Object.fromEntries(missingPermissions.map((permission) => [permission, true]));
+    try {
+      await updateAgentConfig(folder.id, { permissions });
+      setRunMessage(t("已补齐当前任务所需权限，可以立即执行。", "Required permissions enabled. You can run the Agent now."));
+    } catch (error) {
+      setRunMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const openOutput = async (reveal = false) => {
+    if (!latestArtifact) return;
+    const result = reveal
+      ? await window.missionConsole.revealMaterial(folder.id, latestArtifact.id)
+      : await window.missionConsole.openMaterial(folder.id, latestArtifact.id);
+    if (!result.ok) setRunMessage(result.error);
+  };
+
+  const strategies: { key: AgentConfig["strategy"]; label: string }[] = [
+    { key: "follow_up", label: t("跟进提醒", "Follow up") },
+    { key: "material_collect", label: t("材料检查", "Check materials") },
+    { key: "progress_sync", label: t("进度摘要", "Progress summary") },
+    { key: "custom", label: t("自定义工作流", "Custom workflow") },
   ];
   const permissions = [
     { key: "read", label: t("读取", "Read"), icon: Eye },
@@ -57,201 +183,230 @@ export default function AgentControlPanel({ folderId, config }: AgentControlPane
     { key: "notify", label: t("通知", "Notify"), icon: Bell },
     { key: "create_subtask", label: t("建子任务", "Create subtask"), icon: ListPlus },
   ] as const;
+  const latestWorkflowRun = workflowRuns[0] ?? null;
+
+  const statusTitle = running
+    ? t("正在执行", "Running")
+    : latestRunFailed
+      ? t("最近执行失败", "Last run failed")
+      : latestAgentEvent
+        ? t("最近执行成功", "Last run succeeded")
+        : config.enabled
+          ? t("等待首次执行", "Waiting for first run")
+          : t("尚未启用托管", "Agent disabled");
 
   return (
     <div className="flex flex-col h-full">
-      {/* 头部 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
         <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "relative w-6 h-6 flex items-center justify-center border",
-              config.enabled
-                ? "border-phosphor-400/50 bg-phosphor-400/10"
-                : "border-ink-faint/30 bg-white/3"
-            )}
-          >
-            <Bot
-              className={cn("w-3 h-3", config.enabled ? "text-phosphor-400" : "text-ink-faint")}
-              strokeWidth={1.5}
-            />
-            {config.enabled && (
-              <span className="absolute inset-0 bg-scanline opacity-20 animate-flicker" />
-            )}
+          <div className={cn(
+            "relative w-6 h-6 flex items-center justify-center border",
+            config.enabled ? "border-phosphor-400/50 bg-phosphor-400/10" : "border-ink-faint/30 bg-white/3",
+          )}>
+            <Bot className={cn("w-3 h-3", config.enabled ? "text-phosphor-400" : "text-ink-faint")} strokeWidth={1.5} />
           </div>
-          {config.strategy === "custom" && (
-            <select
-              className="input w-full mt-2"
-              disabled={!config.enabled}
-              value={config.workflowId ?? ""}
-              onChange={(event) => void updateAgentConfig(folderId, { workflowId: event.target.value || null })}
-            >
-              <option value="">{t("选择工作流", "Select workflow")}</option>
-              {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
-            </select>
-          )}
           <div>
-            <h3 className="font-display text-[11px] uppercase tracking-[0.18em] text-ink leading-none">
+            <h3 className="font-display text-[11px] font-semibold text-ink leading-none">
               {t("Agent 托管", "Agent control")}
             </h3>
-            <p className="text-[9px] data-mono mt-1 leading-none flex items-center gap-1">
-              <span
-                className={cn(
-                  "w-1 h-1",
-                  config.enabled ? "bg-jade animate-pulse-dot" : "bg-ink-faint"
-                )}
-              />
-              <span className={config.enabled ? "text-jade" : "text-ink-faint"}>
-                {config.enabled ? "ACTIVE" : "STANDBY"}
-              </span>
+            <p className="text-[9px] text-ink-faint mt-1">
+              {config.enabled ? t("已加入自动调度", "Automatic scheduling enabled") : t("不会自动执行", "Will not run automatically")}
             </p>
           </div>
         </div>
         <button
-          onClick={() => toggleAgent(folderId)}
-          className={cn(
-            "relative w-10 h-5 rounded-full transition-colors",
-            config.enabled ? "bg-phosphor-400/30" : "bg-white/8"
-          )}
+          type="button"
+          title={config.enabled ? t("关闭自动托管", "Disable automatic control") : t("开启自动托管", "Enable automatic control")}
+          onClick={() => void toggleAgent(folder.id)}
+          className={cn("relative w-10 h-5 rounded-full transition-colors", config.enabled ? "bg-phosphor-400/30" : "bg-white/8")}
         >
-          <span
-            className={cn(
-              "absolute top-0.5 w-4 h-4 rounded-full transition-all",
-              config.enabled
-                ? "left-[22px] bg-phosphor-400 shadow-glow-phosphor"
-                : "left-0.5 bg-ink-muted"
-            )}
-          />
+          <span className={cn(
+            "absolute top-0.5 w-4 h-4 rounded-full transition-all",
+            config.enabled ? "left-[22px] bg-phosphor-400 shadow-glow-phosphor" : "left-0.5 bg-ink-muted",
+          )} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* 策略选择 */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-2">
-            <Zap className="w-3 h-3 text-amber-400" strokeWidth={1.5} />
-            <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              {t("托管策略", "Control strategy")}
-            </span>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className={cn(
+          "px-3 py-2.5 border",
+          latestRunFailed ? "border-coral/30 bg-coral/5" : running ? "border-phosphor-400/35 bg-phosphor-400/5" : "border-white/8 bg-obsidian-950/30",
+        )}>
+          <div className="flex items-center gap-2">
+            {latestRunFailed
+              ? <XCircle className="w-3.5 h-3.5 text-coral" />
+              : running
+                ? <Loader2 className="w-3.5 h-3.5 text-phosphor-400 animate-spin" />
+                : <Activity className="w-3.5 h-3.5 text-jade" />}
+            <span className="text-[12px] font-medium text-ink">{statusTitle}</span>
+            {latestAgentEvent && <span className="ml-auto text-[9px] text-ink-faint">{relativeTime(latestAgentEvent.timestamp, locale)}</span>}
           </div>
-          <div className="space-y-1">
-            {strategies.map((s) => {
-              const active = config.strategy === s.key;
-              return (
-                <button
-                  key={s.key}
-                  disabled={!config.enabled}
-                  onClick={() => void updateAgentConfig(folderId, { strategy: s.key })}
-                  className={cn(
-                    "w-full text-left px-3 py-2 border transition-all",
-                    !config.enabled && "opacity-40 cursor-not-allowed",
-                    active
-                      ? "border-phosphor-400/40 bg-phosphor-400/8"
-                      : "border-white/5 hover:border-phosphor-400/25 hover:bg-white/3"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span
-                      className={cn(
-                        "text-[12px] font-medium",
-                        active ? "text-phosphor-100" : "text-ink"
-                      )}
-                    >
-                      {s.label}
-                    </span>
-                    {active && <Power className="w-3 h-3 text-phosphor-400" strokeWidth={1.5} />}
-                  </div>
-                  <p className="text-[10px] text-ink-faint leading-snug">{s.desc}</p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 权限边界 */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-2">
-            <Shield className="w-3 h-3 text-violet" strokeWidth={1.5} />
-            <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              {t("权限边界", "Permissions")}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {permissions.map((p) => {
-              const on = config.permissions[p.key];
-              return (
-                <button
-                  key={p.key}
-                  type="button"
-                  disabled={!config.enabled}
-                  onClick={() =>
-                    void updateAgentConfig(folderId, {
-                      permissions: { [p.key]: !on },
-                    })
-                  }
-                  className={cn(
-                    "flex items-center gap-2 px-2.5 py-1.5 border text-left transition-colors",
-                    !config.enabled && "cursor-not-allowed",
-                    on
-                      ? "border-phosphor-400/30 bg-phosphor-400/5"
-                      : "border-white/5 opacity-50"
-                  )}
-                >
-                  <p.icon
-                    className={cn("w-3 h-3", on ? "text-phosphor-400" : "text-ink-faint")}
-                    strokeWidth={1.5}
-                  />
-                  <span className="text-[10px] text-ink-muted">{p.label}</span>
-                  <span
-                    className={cn(
-                      "ml-auto w-1.5 h-1.5 rounded-full",
-                      on ? "bg-phosphor-400" : "bg-ink-faint"
-                    )}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 最近动作 */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-2">
-            <Activity className="w-3 h-3 text-jade" strokeWidth={1.5} />
-            <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-muted">
-              {t("最近动作", "Latest action")}
-            </span>
-          </div>
-          <div className="px-3 py-2 border border-white/5 bg-obsidian-950/40">
-            {config.lastAction ? (
-              <>
-                <p className="text-[11px] text-ink leading-snug">{t("Agent 最近一次成功执行已写入时间线", "The latest successful Agent run is recorded in the timeline")}</p>
-                <p className="text-[9px] data-mono text-ink-faint mt-1">
-                  {relativeTime(config.lastAction, locale)}
-                </p>
-              </>
-            ) : (
-              <p className="text-[11px] text-ink-faint">{t("尚无动作记录", "No actions recorded yet")}</p>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <button
-            type="button"
-            onClick={() => void runNow()}
-            disabled={!config.enabled || running}
-            className="btn-phosphor w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
-            {running ? t("Agent 执行中…", "Agent running…") : t("立即执行一次", "Run once")}
-          </button>
-          {runMessage && (
-            <p className="mt-2 px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted border border-white/5">
-              {runMessage}
+          <p className="mt-1.5 text-[10px] leading-relaxed text-ink-muted">
+            {latestAgentEvent?.action ?? (config.enabled
+              ? t("开启托管不会立即执行；你可以现在运行，或等待下一次心跳。", "Enabling control does not run immediately. Run now or wait for the next heartbeat.")
+              : t("开启后才会进入自动心跳队列。", "Enable control to join the heartbeat queue."))}
+          </p>
+          {config.enabled && (
+            <p className="mt-1 flex items-center gap-1 text-[9px] text-ink-faint">
+              <Clock3 className="w-2.5 h-2.5" />
+              {scheduler?.scheduled && scheduler.nextRunAt
+                ? t(`下次自动巡检 ${relativeTime(scheduler.nextRunAt, locale)}，间隔 ${scheduler.intervalMin} 分钟`, `Next automatic scan ${relativeTime(scheduler.nextRunAt, locale)}; interval ${scheduler.intervalMin} minutes`)
+                : t("自动调度当前未运行，可使用下方按钮手动执行。", "Automatic scheduling is not running; use the button below.")}
             </p>
           )}
         </div>
+
+        {missingPermissions.length > 0 && config.enabled && (
+          <div className="px-3 py-2.5 border border-coral/30 bg-coral/5">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-coral shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-coral">{t("执行前还缺少权限", "Permissions required")}</p>
+                <p className="text-[10px] text-ink-muted mt-1">
+                  {t(
+                    `缺少：${missingPermissions.map((key) => permissions.find((permission) => permission.key === key)?.label ?? key).join("、")}。自动执行时会被安全拒绝。`,
+                    `Missing: ${missingPermissions.join(", ")}. Automatic runs will be rejected safely.`,
+                  )}
+                </p>
+                <button type="button" onClick={() => void applyRequiredPermissions()} className="mt-2 text-[10px] text-phosphor-600 hover:underline">
+                  {t("一键补齐当前任务所需权限", "Enable required permissions")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void runNow()}
+          disabled={!config.enabled || running || missingPermissions.length > 0}
+          className="btn-phosphor w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
+          {running ? t("Agent 执行中…", "Agent running…") : t("立即执行当前任务", "Run current task now")}
+        </button>
+        {runMessage && <p className="px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted border border-white/5">{runMessage}</p>}
+
+        <div className="grid grid-cols-1 gap-2">
+          <section className="px-3 py-2.5 border border-white/8">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-faint">
+              <Zap className="w-3 h-3 text-amber-400" /> {t("当前任务", "Current task")}
+            </div>
+            {pendingTodo ? (
+              <>
+                <p className="mt-1.5 text-[11px] text-ink leading-snug">{pendingTodo.title}</p>
+                <p className="mt-1 text-[9px] text-ink-faint">
+                  {TASK_LABELS[taskType]} · {taskType === "analysis"
+                    ? t("只给出分析，不自动完成、不生成文件", "Analysis only; no auto-completion or file")
+                    : writesArtifact
+                      ? t(`成功后完成待办，并生成 ${pendingTodo.artifactFormat ?? "markdown"} 文件`, `Completes the todo and creates a ${pendingTodo.artifactFormat ?? "markdown"} file`)
+                      : t("成功后完成待办", "Completes the todo on success")}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1.5 text-[10px] text-ink-muted">{t("没有未完成的 Agent 待办；运行时只执行托管策略巡检。", "No pending Agent todo; runs only perform the selected strategy scan.")}</p>
+            )}
+          </section>
+
+          <section className="px-3 py-2.5 border border-white/8">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-faint">
+              <Workflow className="w-3 h-3 text-violet" /> {t("工作流", "Workflow")}
+            </div>
+            {selectedWorkflow ? (
+              <>
+                <p className="mt-1.5 text-[11px] text-ink">{selectedWorkflow.name}</p>
+                <p className="mt-1 text-[9px] text-ink-faint">
+                  {latestWorkflowRun
+                    ? t(`最近一次：${latestWorkflowRun.status === "success" ? "成功" : "失败"} · ${relativeTime(latestWorkflowRun.finishedAt, locale)}`, `Last run: ${latestWorkflowRun.status} · ${relativeTime(latestWorkflowRun.finishedAt, locale)}`)
+                    : t("尚未执行过", "Never run")}
+                </p>
+              </>
+            ) : (
+              <p className="mt-1.5 text-[10px] text-ink-muted">
+                {t("当前任务不会调用工作流；工作流页面里的“启用”不等于已绑定到本任务。", "This task will not call a workflow. Enabling a workflow does not bind it to this task.")}
+              </p>
+            )}
+            <Link to="/workflow" className="inline-block mt-1.5 text-[9px] text-phosphor-600 hover:underline">
+              {t("查看工作流运行记录", "View workflow history")}
+            </Link>
+          </section>
+
+          <section className="px-3 py-2.5 border border-white/8">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-faint">
+              <FileOutput className="w-3 h-3 text-jade" /> {t("输出文件", "Output file")}
+            </div>
+            {latestArtifact ? (
+              <>
+                <p className="mt-1.5 text-[11px] text-ink truncate" title={latestArtifact.name}>{latestArtifact.name}</p>
+                <p className="mt-1 text-[9px] text-ink-faint">{t(`已回挂到材料库 · ${shortTime(latestArtifact.addedAt)}`, `Saved in Materials · ${shortTime(latestArtifact.addedAt)}`)}</p>
+                <div className="flex gap-3 mt-1.5">
+                  <button type="button" onClick={() => void openOutput()} className="text-[9px] text-phosphor-600 hover:underline">{t("打开文件", "Open")}</button>
+                  <button type="button" onClick={() => void openOutput(true)} className="flex items-center gap-1 text-[9px] text-phosphor-600 hover:underline"><FolderOpen className="w-2.5 h-2.5" />{t("定位文件", "Show in folder")}</button>
+                </div>
+              </>
+            ) : (
+              <p className="mt-1.5 text-[10px] text-ink-muted">
+                {writesArtifact
+                  ? t("尚无输出；成功执行后会自动出现在材料库。", "No output yet. A successful run will add it to Materials.")
+                  : t("当前任务类型不会生成文件。", "The current task type does not create a file.")}
+              </p>
+            )}
+          </section>
+        </div>
+
+        <details className="border border-white/8">
+          <summary className="cursor-pointer list-none flex items-center gap-2 px-3 py-2 text-[10px] text-ink-muted hover:text-ink">
+            <Settings2 className="w-3 h-3" /> {t("高级设置：策略、工作流与权限", "Advanced: strategy, workflow, permissions")}
+          </summary>
+          <div className="px-3 pb-3 space-y-3 border-t border-white/5 pt-3">
+            <div>
+              <label className="text-[9px] text-ink-faint">{t("无待办时的巡检策略", "Scan strategy when no todo is pending")}</label>
+              <select
+                className="input w-full mt-1"
+                disabled={!config.enabled}
+                value={config.strategy}
+                onChange={(event) => void updateAgentConfig(folder.id, { strategy: event.target.value as AgentConfig["strategy"] })}
+              >
+                {strategies.map((strategy) => <option key={strategy.key} value={strategy.key}>{strategy.label}</option>)}
+              </select>
+            </div>
+            {config.strategy === "custom" && (
+              <div>
+                <label className="text-[9px] text-ink-faint">{t("默认工作流", "Default workflow")}</label>
+                <select
+                  className="input w-full mt-1"
+                  disabled={!config.enabled}
+                  value={config.workflowId ?? ""}
+                  onChange={(event) => void updateAgentConfig(folder.id, { workflowId: event.target.value || null })}
+                >
+                  <option value="">{t("选择工作流", "Select workflow")}</option>
+                  {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-1.5">
+              {permissions.map((permission) => {
+                const enabled = config.permissions[permission.key];
+                return (
+                  <button
+                    key={permission.key}
+                    type="button"
+                    disabled={!config.enabled}
+                    onClick={() => void updateAgentConfig(folder.id, { permissions: { [permission.key]: !enabled } })}
+                    className={cn(
+                      "flex items-center gap-2 px-2.5 py-1.5 border text-left",
+                      enabled ? "border-phosphor-400/30 bg-phosphor-400/5" : "border-white/5 opacity-50",
+                    )}
+                  >
+                    <permission.icon className="w-3 h-3 text-phosphor-400" />
+                    <span className="text-[10px] text-ink-muted">{permission.label}</span>
+                    {enabled ? <CheckCircle2 className="ml-auto w-3 h-3 text-jade" /> : <Power className="ml-auto w-3 h-3 text-ink-faint" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   );
