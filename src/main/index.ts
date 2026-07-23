@@ -70,6 +70,7 @@ import {
   runDueScheduledWorkflows,
   runWorkflow,
 } from "../core/workflow";
+import { analyzeWithCopilot, draftWithCopilot } from "../core/copilot/copilotService";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -422,6 +423,25 @@ function registerIpc(): void {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+  });
+
+  // Copilot：模型只在用户显式选择“智能分析”或“创建草稿”时调用。
+  // 上下文由主进程从本地数据库构建，渲染进程无法传入文件路径或凭据。
+  ipcMain.handle("copilot:analyze", async (_e, prompt: string) => {
+    try {
+      const result = await analyzeWithCopilot(getConfig().deepseek, getAllFoldersWithDetails(), prompt);
+      return { ok: true as const, result };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  ipcMain.handle("copilot:draft", async (_e, prompt: string) => {
+    try {
+      const result = await draftWithCopilot(getConfig().deepseek, getAllFoldersWithDetails(), prompt);
+      return { ok: true as const, result };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   });
 

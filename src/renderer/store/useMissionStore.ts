@@ -4,6 +4,7 @@ import type {
   IntegrationAdapter,
   WorkflowRule,
   CopilotMessage,
+  CopilotMode,
   Todo,
   Material,
   AgentNotification,
@@ -50,9 +51,11 @@ interface MissionState {
   createIntegration: (input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
   updateIntegration: (id: string, input: UpsertIntegrationInput) => Promise<IntegrationAdapter>;
   deleteIntegration: (id: string) => Promise<boolean>;
-  sendCopilot: (content: string) => void;
+  sendCopilot: (content: string, mode: CopilotMode) => Promise<void>;
   pushCopilot: (content: string) => void;
   clearCopilot: () => void;
+  applyCopilotDraft: (messageId: string) => Promise<void>;
+  cancelCopilotDraft: (messageId: string) => void;
   setCopilotOpen: (open: boolean) => void;
   runCopilotAction: (messageId: string, actionId: string) => void;
   addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => Promise<Material>;
@@ -437,28 +440,73 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     return deleted;
   },
 
-  sendCopilot: (content) => {
+  sendCopilot: async (content, mode) => {
     const userMsg: CopilotMessage = {
       id: genId(),
       role: "user",
       content,
       timestamp: Date.now(),
     };
-    const plan = planLocalReply(content, get().folders, get().integrations);
-    const agentMsg: CopilotMessage = {
-      id: genId(),
-      role: "agent",
-      content: plan.fullText,
-      timestamp: Date.now() + 1,
-      thinking: plan.thinking,
-      references: plan.references,
-      actions: plan.actions,
-    };
+    if (mode === "local") {
+      const plan = planLocalReply(content, get().folders, get().integrations);
+      const agentMsg: CopilotMessage = {
+        id: genId(),
+        role: "agent",
+        content: plan.fullText,
+        timestamp: Date.now() + 1,
+        thinking: plan.thinking,
+        references: plan.references,
+        actions: plan.actions,
+      };
+      set((s) => ({ copilotMessages: [...s.copilotMessages, userMsg, agentMsg], copilotStreaming: false }));
+      return;
+    }
 
+    const agentMsgId = genId();
+    const startedAt = Date.now();
     set((s) => ({
-      copilotMessages: [...s.copilotMessages, userMsg, agentMsg],
-      copilotStreaming: false,
+      copilotMessages: [...s.copilotMessages, userMsg, {
+        id: agentMsgId,
+        role: "agent",
+        content: "",
+        timestamp: Date.now() + 1,
+        streaming: true,
+      }],
+      copilotStreaming: true,
     }));
+    try {
+      const response = mode === "analysis"
+        ? await window.missionConsole.analyzeCopilot(content)
+        : await window.missionConsole.draftCopilot(content);
+      if (!response.ok) throw new Error(response.error);
+      const result = response.result;
+      set((state) => ({
+        copilotMessages: state.copilotMessages.map((message) => message.id === agentMsgId ? {
+          ...message,
+          content: result.content,
+          streaming: false,
+          draft: result.draft,
+          draftStatus: result.draft ? "pending" : undefined,
+          meta: {
+            model: result.model,
+            tokensIn: result.usage?.promptTokens ?? 0,
+            tokensOut: result.usage?.completionTokens ?? 0,
+            durationMs: Date.now() - startedAt,
+          },
+        } : message),
+        copilotStreaming: false,
+      }));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      set((state) => ({
+        copilotMessages: state.copilotMessages.map((message) => message.id === agentMsgId ? {
+          ...message,
+          content: `智能${mode === "analysis" ? "分析" : "草稿生成"}未完成：${detail}`,
+          streaming: false,
+        } : message),
+        copilotStreaming: false,
+      }));
+    }
   },
 
   pushCopilot: (content) =>
@@ -470,6 +518,37 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     })),
 
   clearCopilot: () => set({ copilotMessages: [newCopilotWelcome()], copilotStreaming: false }),
+
+  applyCopilotDraft: async (messageId) => {
+    const message = get().copilotMessages.find((item) => item.id === messageId);
+    const draft = message?.draft;
+    if (!draft || message?.draftStatus !== "pending") return;
+    try {
+      if (draft.kind === "folder") {
+        const folder = await get().createFolder(draft.input);
+        for (const todo of draft.todos) {
+          await get().createTodo(folder.id, { ...todo, dueDate: null });
+        }
+      } else {
+        await get().createWorkflow(draft.input);
+      }
+      set((state) => ({
+        copilotMessages: state.copilotMessages.map((item) => item.id === messageId ? { ...item, draftStatus: "applied", draftError: undefined } : item),
+      }));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      set((state) => ({
+        copilotMessages: state.copilotMessages.map((item) => item.id === messageId ? { ...item, draftStatus: "failed", draftError: detail } : item),
+      }));
+      throw error;
+    }
+  },
+
+  cancelCopilotDraft: (messageId) => set((state) => ({
+    copilotMessages: state.copilotMessages.map((item) => item.id === messageId && item.draftStatus === "pending"
+      ? { ...item, draftStatus: "cancelled" }
+      : item),
+  })),
 
   runCopilotAction: (messageId, actionId) =>
     set((s) => ({

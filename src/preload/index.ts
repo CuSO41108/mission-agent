@@ -21,6 +21,7 @@ import type {
   FolderStatus,
   UpsertWorkflowInput,
   WorkflowRun,
+  CopilotModelResult,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
 
@@ -43,6 +44,14 @@ const api = {
       | { ok: true; content: string; model: string }
       | { ok: false; error: string }
     >,
+  analyzeCopilot: (prompt: string) => ipcRenderer.invoke("copilot:analyze", prompt) as Promise<
+    | { ok: true; result: CopilotModelResult }
+    | { ok: false; error: string }
+  >,
+  draftCopilot: (prompt: string) => ipcRenderer.invoke("copilot:draft", prompt) as Promise<
+    | { ok: true; result: CopilotModelResult }
+    | { ok: false; error: string }
+  >,
 
   // ============ 数据读取（Phase 3） ============
   getFolders: () => ipcRenderer.invoke("folder:list") as Promise<TaskFolder[]>,
