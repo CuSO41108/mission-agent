@@ -40,6 +40,7 @@ export default function Settings() {
   const [draftApiKey, setDraftApiKey] = useState("");
   const [draftModel, setDraftModel] = useState("deepseek-chat");
   const [draftHeartbeatInterval, setDraftHeartbeatInterval] = useState(60);
+  const [draftMaxConcurrentRuns, setDraftMaxConcurrentRuns] = useState(2);
   const [draftShortcut, setDraftShortcut] = useState("");
   const [saveError, setSaveError] = useState("");
 
@@ -50,6 +51,7 @@ export default function Settings() {
       setDraftApiKey("");
       setDraftModel(cfg.deepseek.model);
       setDraftHeartbeatInterval(cfg.agent.heartbeatIntervalMin);
+      setDraftMaxConcurrentRuns(cfg.agent.maxConcurrentRuns);
       setDraftShortcut(cfg.system.globalShortcut);
       setLoading(false);
     });
@@ -80,6 +82,16 @@ export default function Settings() {
       },
     });
     if (merged) setDraftHeartbeatInterval(merged.agent.heartbeatIntervalMin);
+  }
+
+  async function saveMaxConcurrentRuns() {
+    const merged = await savePartial({
+      agent: {
+        ...config!.agent,
+        maxConcurrentRuns: draftMaxConcurrentRuns,
+      },
+    });
+    if (merged) setDraftMaxConcurrentRuns(merged.agent.maxConcurrentRuns);
   }
 
   // 测试 OpenAI 兼容模型连接
@@ -335,6 +347,26 @@ export default function Settings() {
             </div>
             <p className="text-[10px] text-ink-faint mt-1.5">
               {t("默认 60 分钟，可设置 5–1440 分钟；修改后从当前时间重新计时。", "Defaults to 60 minutes. Allowed range: 5–1440; changing it restarts the countdown.")}
+            </p>
+          </Field>
+          <Field label={t("最大并发 Agent Run", "Max concurrent Agent Runs")}>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={4}
+                step={1}
+                value={draftMaxConcurrentRuns}
+                onChange={(e) => setDraftMaxConcurrentRuns(Number(e.target.value))}
+                className="input flex-1"
+              />
+              <span className="text-[11px] text-ink-muted">{t("个", "runs")}</span>
+              <button onClick={saveMaxConcurrentRuns} className="btn-ghost">
+                {t("应用", "Apply")}
+              </button>
+            </div>
+            <p className="text-[10px] text-ink-faint mt-1.5">
+              {t("默认 2，可设为 1–4。任务 Agent 与智能分析共用当前模型配置的并发额度；同一任务舱仍会串行。", "Defaults to 2; choose 1–4. Agent Runs and smart analysis share the current model capacity; one folder still runs serially.")}
             </p>
           </Field>
           <Toggle

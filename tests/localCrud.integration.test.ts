@@ -36,6 +36,74 @@ import {
 } from "../src/core/services/workflowService";
 import { dispatchWorkflowEvent, runWorkflow } from "../src/core/workflow/WorkflowEngine";
 import { runAgentOnce } from "../src/core/agent/AgentService";
+import { AgentRunRepository } from "../src/core/repositories/agentRunRepository";
+import { tick } from "../src/core/workflow/WorkflowService";
+
+test("Agent Run 持久化去重并以任务舱租约互斥", () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  try {
+    const folder = createFolder({
+      name: "运行队列测试",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: true,
+    });
+    const first = AgentRunRepository.enqueue({ folderId: folder.id, source: "heartbeat" });
+    const duplicate = AgentRunRepository.enqueue({ folderId: folder.id, source: "manual" });
+    assert.equal(first.created, true);
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.run.id, first.run.id);
+
+    const claimed = AgentRunRepository.claim(first.run.id);
+    assert.equal(claimed?.status, "running");
+    assert.equal(AgentRunRepository.listActive().length, 1);
+
+    AgentRunRepository.finish(first.run.id, "succeeded", {
+      summary: "完成",
+      error: null,
+      errorCode: null,
+    });
+    assert.equal(AgentRunRepository.listActive().length, 0);
+    const next = AgentRunRepository.enqueue({ folderId: folder.id, source: "manual" });
+    assert.equal(next.created, true);
+  } finally {
+    closeDatabase();
+  }
+});
+
+test("心跳可在不同任务舱之间受并发上限控制地运行", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const originalFetch = globalThis.fetch;
+  let active = 0;
+  let peak = 0;
+  globalThis.fetch = (async () => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    active -= 1;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "巡检正常" } }],
+      model: "test",
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    createFolder({ name: "并发任务一", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    createFolder({ name: "并发任务二", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    const result = await tick(
+      { apiKey: "test", baseUrl: "https://example.invalid", model: "test" },
+      { modelConcurrency: 2, modelCapacityKey: "integration-concurrency" },
+    );
+    assert.equal(result.executed, 2);
+    assert.equal(result.succeeded, 2);
+    assert.equal(peak, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    closeDatabase();
+  }
+});
 
 test("预设任务舱不再写入虚假运行时间线，进度按全部待办计算", () => {
   initDatabase({ dbPath: ":memory:" });
