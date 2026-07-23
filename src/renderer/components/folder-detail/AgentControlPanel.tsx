@@ -69,6 +69,11 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
   const [runMessage, setRunMessage] = useState("");
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+  const [modelStatus, setModelStatus] = useState<{ loaded: boolean; configured: boolean; model: string }>({
+    loaded: false,
+    configured: false,
+    model: "",
+  });
 
   const pendingTodo = useMemo(
     () => flattenTodos(folder.todos).find((todo) => todo.assignee === "agent" && !todo.done) ?? null,
@@ -82,6 +87,8 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
       ? config.workflowId ?? null
       : null;
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
+  const usesWorkflow = taskType === "workflow" || (!pendingTodo && config.strategy === "custom");
+  const requiresModel = !usesWorkflow;
 
   const latestAgentEvent = useMemo(
     () => [...folder.timeline]
@@ -98,18 +105,54 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
   );
 
   const requiredPermissions = useMemo(() => {
-    const required: Array<keyof AgentConfig["permissions"]> = ["read"];
+    const required: Array<keyof AgentConfig["permissions"]> = [];
+    if (!usesWorkflow) required.push("read");
     if (pendingTodo && taskType !== "analysis") required.push("write");
-    if (taskType === "follow_up") required.push("notify");
+    if (pendingTodo && taskType === "follow_up") required.push("notify");
     return required;
-  }, [pendingTodo, taskType]);
+  }, [pendingTodo, taskType, usesWorkflow]);
   const missingPermissions = requiredPermissions.filter((permission) => !config.permissions[permission]);
+
+  const executionBlockers = useMemo(() => {
+    const blockers: string[] = [];
+    if (folder.status !== "active") blockers.push(t("任务舱不是进行中状态", "Folder is not active"));
+    if (!config.enabled) blockers.push(t("Agent 托管尚未开启", "Agent control is disabled"));
+    if (missingPermissions.length > 0) {
+      const permissionNames = {
+        read: t("读取", "Read"),
+        write: t("写入", "Write"),
+        notify: t("通知", "Notify"),
+        create_subtask: t("建子任务", "Create subtask"),
+      };
+      blockers.push(t(
+        `缺少权限：${missingPermissions.map((permission) => permissionNames[permission]).join("、")}`,
+        `Missing permissions: ${missingPermissions.map((permission) => permissionNames[permission]).join(", ")}`,
+      ));
+    }
+    if (usesWorkflow && !selectedWorkflow) blockers.push(t("没有绑定可执行工作流", "No workflow is bound"));
+    if (requiresModel && modelStatus.loaded && !modelStatus.configured) blockers.push(t("尚未配置模型 API Key", "Model API key is not configured"));
+    if (requiresModel && !modelStatus.loaded) blockers.push(t("正在确认模型配置", "Checking model configuration"));
+    return blockers;
+  }, [config.enabled, folder.status, missingPermissions, modelStatus, requiresModel, selectedWorkflow, t, usesWorkflow]);
 
   const loadScheduler = useCallback(async () => {
     try {
       setScheduler(await window.missionConsole.getSchedulerStatus());
     } catch {
       setScheduler(null);
+    }
+  }, []);
+
+  const loadModelStatus = useCallback(async () => {
+    try {
+      const appConfig = await window.missionConsole.getConfig();
+      setModelStatus({
+        loaded: true,
+        configured: Boolean(appConfig.deepseek.apiKeyConfigured),
+        model: appConfig.deepseek.model,
+      });
+    } catch {
+      setModelStatus({ loaded: true, configured: false, model: "" });
     }
   }, []);
 
@@ -127,17 +170,17 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
   }, [folder.id, selectedWorkflowId]);
 
   useEffect(() => {
-    void loadScheduler();
-    const timer = window.setInterval(() => void loadScheduler(), 15_000);
+    void Promise.all([loadScheduler(), loadModelStatus()]);
+    const timer = window.setInterval(() => void Promise.all([loadScheduler(), loadModelStatus()]), 15_000);
     return () => window.clearInterval(timer);
-  }, [loadScheduler]);
+  }, [loadModelStatus, loadScheduler]);
 
   useEffect(() => {
     void loadWorkflowRuns();
   }, [loadWorkflowRuns]);
 
   const runNow = async () => {
-    if (running || !config.enabled) return;
+    if (running || executionBlockers.length > 0) return;
     setRunning(true);
     setRunMessage("");
     try {
@@ -256,21 +299,32 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
           )}
         </div>
 
-        {missingPermissions.length > 0 && config.enabled && (
+        {executionBlockers.length > 0 && (
           <div className="px-3 py-2.5 border border-coral/30 bg-coral/5">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-coral shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="text-[11px] font-medium text-coral">{t("执行前还缺少权限", "Permissions required")}</p>
-                <p className="text-[10px] text-ink-muted mt-1">
-                  {t(
-                    `缺少：${missingPermissions.map((key) => permissions.find((permission) => permission.key === key)?.label ?? key).join("、")}。自动执行时会被安全拒绝。`,
-                    `Missing: ${missingPermissions.join(", ")}. Automatic runs will be rejected safely.`,
+                <p className="text-[11px] font-medium text-coral">{t("暂时无法执行", "Cannot run yet")}</p>
+                <ul className="mt-1 space-y-0.5 text-[10px] text-ink-muted">
+                  {executionBlockers.map((blocker) => <li key={blocker}>· {blocker}</li>)}
+                </ul>
+                <div className="flex flex-wrap gap-3 mt-2">
+                  {missingPermissions.length > 0 && config.enabled && (
+                    <button type="button" onClick={() => void applyRequiredPermissions()} className="text-[10px] text-phosphor-600 hover:underline">
+                      {t("补齐所需权限", "Enable required permissions")}
+                    </button>
                   )}
-                </p>
-                <button type="button" onClick={() => void applyRequiredPermissions()} className="mt-2 text-[10px] text-phosphor-600 hover:underline">
-                  {t("一键补齐当前任务所需权限", "Enable required permissions")}
-                </button>
+                  {requiresModel && modelStatus.loaded && !modelStatus.configured && (
+                    <Link to="/settings" className="text-[10px] text-phosphor-600 hover:underline">
+                      {t("前往模型设置", "Open model settings")}
+                    </Link>
+                  )}
+                  {usesWorkflow && !selectedWorkflow && (
+                    <Link to="/workflow" className="text-[10px] text-phosphor-600 hover:underline">
+                      {t("前往工作流", "Open workflows")}
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -279,11 +333,15 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
         <button
           type="button"
           onClick={() => void runNow()}
-          disabled={!config.enabled || running || missingPermissions.length > 0}
+          disabled={running || executionBlockers.length > 0}
           className="btn-phosphor w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
-          {running ? t("Agent 执行中…", "Agent running…") : t("立即执行当前任务", "Run current task now")}
+          {running
+            ? t("Agent 执行中…", "Agent running…")
+            : pendingTodo
+              ? t("立即执行当前任务", "Run current task now")
+              : t("立即执行托管巡检", "Run managed scan now")}
         </button>
         {runMessage && <p className="px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted border border-white/5">{runMessage}</p>}
 
@@ -302,9 +360,23 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
                       ? t(`成功后完成待办，并生成 ${pendingTodo.artifactFormat ?? "markdown"} 文件`, `Completes the todo and creates a ${pendingTodo.artifactFormat ?? "markdown"} file`)
                       : t("成功后完成待办", "Completes the todo on success")}
                 </p>
+                <p className="mt-1 text-[9px] text-ink-faint">
+                  {usesWorkflow
+                    ? t("本次交给工作流执行；工作流若包含“运行 Agent”节点，才可能请求模型。", "Runs through the workflow; a model may be requested only if it contains a Run Agent node.")
+                    : modelStatus.configured
+                      ? t(`本次会请求模型 API（${modelStatus.model || "当前模型"}）。`, `This run will call the model API (${modelStatus.model || "current model"}).`)
+                      : t("本任务需要模型 API，但当前尚未配置。", "This task needs a model API, which is not configured.")}
+                </p>
               </>
             ) : (
-              <p className="mt-1.5 text-[10px] text-ink-muted">{t("没有未完成的 Agent 待办；运行时只执行托管策略巡检。", "No pending Agent todo; runs only perform the selected strategy scan.")}</p>
+              <>
+                <p className="mt-1.5 text-[10px] text-ink-muted">{t("没有未完成的 Agent 待办；运行时只执行托管策略巡检。", "No pending Agent todo; runs only perform the selected strategy scan.")}</p>
+                <p className="mt-1 text-[9px] text-ink-faint">
+                  {usesWorkflow
+                    ? t("将执行默认工作流，是否请求模型由工作流节点决定。", "Runs the default workflow; model usage depends on its nodes.")
+                    : t("巡检会请求模型，但通常只写时间线，不会改变待办进度。", "The scan calls the model but normally only writes to the timeline and does not change todo progress.")}
+                </p>
+              </>
             )}
           </section>
 

@@ -113,6 +113,18 @@ export function migrateDatabase(): void {
       `);
     }
 
+    if (currentVersion < 5) {
+      db.exec(`
+        UPDATE todos
+        SET done = 1
+        WHERE done = 0
+          AND folder_id IN (SELECT id FROM folders WHERE status = 'done');
+        UPDATE folders
+        SET progress = 100, updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        WHERE status = 'done';
+      `);
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",

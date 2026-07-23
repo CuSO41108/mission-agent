@@ -93,6 +93,14 @@ export const TodoRepository = {
     return Number(result.changes) === 1;
   },
 
+  markAllDone(folderId: string): number {
+    const db = getDb();
+    const result = db
+      .prepare("UPDATE todos SET done = 1 WHERE folder_id = ? AND done = 0;")
+      .run(folderId);
+    return Number(result.changes);
+  },
+
   delete(id: string): void {
     const db = getDb();
     db.prepare("DELETE FROM todos WHERE id = ?;").run(id);

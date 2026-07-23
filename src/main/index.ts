@@ -39,6 +39,7 @@ import {
   setFolderStatus,
   toggleTodo,
   addMaterial,
+  updateNoteMaterial,
   deleteMaterial,
   toggleAgent,
   updateAgentConfig,
@@ -446,6 +447,9 @@ function registerIpc(): void {
   // 添加材料
   ipcMain.handle("material:add", (_e, folderId: string, material: unknown) =>
     addMaterial(folderId, material as Parameters<typeof addMaterial>[1]),
+  );
+  ipcMain.handle("material:updateNote", (_e, folderId: string, materialId: string, content: string) =>
+    updateNoteMaterial(folderId, materialId, content),
   );
   ipcMain.handle("material:delete", (_e, folderId: string, materialId: string) =>
     deleteMaterial(folderId, materialId),

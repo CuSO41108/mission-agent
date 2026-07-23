@@ -14,9 +14,7 @@ import type {
   UpsertWorkflowInput,
   WorkflowRun,
 } from "@/types";
-// Phase 3：folder/integration/workflow 改为从 SQLite 拉取
-  // Copilot 仍保留界面演示；Agent 活动和通知不再伪造运行结果。
-import { mockCopilotMessages } from "@/data/mock";
+import { countTodos } from "@/lib/missionStats";
 
 interface MissionState {
   folders: TaskFolder[];
@@ -54,9 +52,11 @@ interface MissionState {
   deleteIntegration: (id: string) => Promise<boolean>;
   sendCopilot: (content: string) => void;
   pushCopilot: (content: string) => void;
+  clearCopilot: () => void;
   setCopilotOpen: (open: boolean) => void;
   runCopilotAction: (messageId: string, actionId: string) => void;
   addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => Promise<Material>;
+  updateNoteMaterial: (folderId: string, materialId: string, content: string) => Promise<Material>;
   deleteMaterial: (folderId: string, materialId: string) => Promise<boolean>;
   pushNotification: (n: Omit<AgentNotification, "id" | "timestamp" | "read">) => void;
   markNotificationRead: (id: string) => void;
@@ -67,141 +67,115 @@ interface MissionState {
 
 const genId = () => Math.random().toString(36).slice(2, 9);
 
-// ============ Mock 流式数据生成 ============
-// 未来接入 DeepSeek 时，只需把这里的 generator 换成真实 API 流即可
-// UI 层消费 chunk 的逻辑完全一致
+// Copilot 当前是确定性的本地查询助手，不调用模型或第三方运行时。
 
-interface AgentReplyPlan {
+interface LocalReplyPlan {
   fullText: string;
   references?: import("@/types").CopilotReference[];
   actions?: import("@/types").CopilotAction[];
   thinking?: import("@/types").CopilotThinking;
 }
 
-function planAgentReply(userText: string): AgentReplyPlan {
-  const t = userText.toLowerCase();
+const newCopilotWelcome = (): CopilotMessage => ({
+  id: genId(),
+  role: "agent",
+  content: "我是本地任务助手，只读取当前客户端中的任务舱、待办和适配器配置。可以查询今日进度、临期任务和接入状态；不会自行发送邮件、飞书消息或调用模型。",
+  timestamp: Date.now(),
+});
 
-  if (t.includes("催办") || t.includes("催")) {
+function deadlineLabel(deadline: number | null, now: number): string {
+  if (!deadline) return "未设置截止时间";
+  const hours = Math.ceil((deadline - now) / 3_600_000);
+  if (hours < 0) return `已逾期 ${Math.abs(hours)} 小时`;
+  if (hours <= 24) return `剩余 ${hours} 小时`;
+  return `剩余 ${Math.ceil(hours / 24)} 天`;
+}
+
+function planLocalReply(
+  userText: string,
+  folders: TaskFolder[],
+  integrations: IntegrationAdapter[],
+): LocalReplyPlan {
+  const query = userText.toLowerCase();
+  const visibleFolders = folders.filter((folder) => folder.status !== "archived");
+  const activeFolders = visibleFolders.filter((folder) => folder.status === "active");
+  const now = Date.now();
+  const urgentFolders = activeFolders
+    .filter((folder) => folder.deadline !== null && folder.deadline <= now + 24 * 3_600_000)
+    .sort((left, right) => (left.deadline ?? Infinity) - (right.deadline ?? Infinity));
+
+  if (["邮件", "mail", "gmail", "飞书", "feishu", "lark", "同步接口"].some((word) => query.includes(word))) {
     return {
-      thinking: {
-        summary: "扫描到 2 项临近截止任务",
-        steps: [
-          "读取所有 enabled 舱体的 deadline 字段",
-          "比对当前时间，筛选 ≤24h 未完成的任务",
-          "命中：Q3 财务复盘（剩余 6h）、新品发布物料（剩余 1d）",
-          "生成催办待办，准备推送到时间线",
-        ],
-      },
-      fullText:
-        "指挥中心已就绪。今日检测到 2 项紧急截止，需要我启动 Agent 催办吗？建议先处理高优先级项，再批量同步至飞书群。",
-      references: [
-        { kind: "folder", id: "f-001", label: "Q3 财务复盘", meta: "剩余 6h" },
-        { kind: "folder", id: "f-002", label: "新品发布物料", meta: "剩余 1d" },
-      ],
-      actions: [
-        { id: "a1", label: "启动 Agent 催办", variant: "primary", command: "催办今日截止的紧急任务" },
-        { id: "a2", label: "查看详情", variant: "ghost", command: "今日进度" },
-      ],
+      fullText: integrations.length > 0
+        ? `当前保存了 ${integrations.length} 个适配器配置，但第三方连接运行时尚未接入，因此没有执行邮件收发、飞书同步或外部消息推送。`
+        : "当前没有已注册的适配器，第三方连接运行时也尚未接入，因此没有执行邮件收发、飞书同步或外部消息推送。",
+      actions: [{ id: genId(), label: "查看适配器", variant: "ghost", command: "open_integrations" }],
     };
   }
 
-  if (t.includes("新建") || t.includes("创建") || t.includes("建舱")) {
+  if (query.includes("催办") || query.includes("紧急") || query.includes("临期") || query.includes("截止")) {
+    if (urgentFolders.length === 0) {
+      return {
+        fullText: "根据当前本地数据，未来 24 小时内没有截止或已经逾期的活跃任务舱。我没有发送任何外部催办消息。",
+        actions: [{ id: genId(), label: "查看全部任务舱", variant: "ghost", command: "open_folders" }],
+      };
+    }
+    const listed = urgentFolders.slice(0, 5);
     return {
       thinking: {
-        summary: "解析用户描述，生成舱体结构草稿",
-        steps: [
-          "从指令中抽取关键词：下周、客户演示",
-          "根据模板生成 3 个待办：准备方案大纲、Demo 演示流、客户问题清单",
-          "预填 1 条材料占位（待上传方案文档）",
-          "等待用户确认后入舱",
-        ],
+        summary: `从本地数据找到 ${urgentFolders.length} 个需跟进任务舱`,
+        steps: ["只检查状态为 active 的任务舱", "筛选已逾期或未来 24 小时内截止的记录", "未发送邮件、飞书消息或启动 Agent"],
       },
-      fullText:
-        "已根据描述生成草稿舱体「客户演示准备」，预填 3 个待办与 1 条材料占位。请确认后我会正式入舱并接入邮件接口。",
-      references: [
-        { kind: "folder", id: "draft", label: "客户演示准备", meta: "草稿" },
-      ],
-      actions: [
-        { id: "a1", label: "确认入舱", variant: "primary", command: "确认入舱" },
-        { id: "a2", label: "修改名称", variant: "ghost", command: "修改舱体名称" },
-      ],
+      fullText: `当前有 ${urgentFolders.length} 个任务舱需要跟进：${listed.map((folder) => `${folder.name}（${deadlineLabel(folder.deadline, now)}，进度 ${folder.progress}%）`).join("；")}。点击下方任务舱可查看详情。`,
+      references: listed.map((folder) => ({ kind: "folder", id: folder.id, label: folder.name, meta: deadlineLabel(folder.deadline, now) })),
+      actions: [{ id: genId(), label: "查看任务舱列表", variant: "primary", command: "open_folders" }],
     };
   }
 
-  if (t.includes("进度") || t.includes("状态")) {
+  if (query.includes("进度") || query.includes("状态") || query.includes("今日")) {
+    const totals = visibleFolders.reduce(
+      (sum, folder) => {
+        const counts = countTodos(folder.todos);
+        return { total: sum.total + counts.total, done: sum.done + counts.done };
+      },
+      { total: 0, done: 0 },
+    );
+    const progress = Math.round((totals.done / Math.max(totals.total, 1)) * 100);
+    const references = [...activeFolders]
+      .sort((left, right) => (left.deadline ?? Infinity) - (right.deadline ?? Infinity))
+      .slice(0, 4)
+      .map((folder) => ({ kind: "folder" as const, id: folder.id, label: folder.name, meta: `进度 ${folder.progress}%` }));
     return {
       thinking: {
-        summary: "聚合所有舱体的 progress 字段",
-        steps: [
-          "读取 folders 表全部记录",
-          "计算全局完成率 = sum(progress) / count",
-          "按 deadline 排序找出最紧迫的两项",
-        ],
+        summary: "统计当前本地任务数据",
+        steps: ["排除已归档任务舱", "递归统计所有层级待办", `已完成 ${totals.done}/${totals.total} 项待办`],
       },
-      fullText:
-        "当前 6 个活跃舱体，全局完成率 47%。最需关注：Q3 财务复盘（剩余 6h，进度 62%）、新品发布物料（剩余 3d，进度 38%）。",
-      references: [
-        { kind: "folder", id: "f-001", label: "Q3 财务复盘", meta: "进度 62%" },
-        { kind: "folder", id: "f-002", label: "新品发布物料", meta: "进度 38%" },
-      ],
-      actions: [
-        { id: "a1", label: "立即催办", variant: "primary", command: "催办紧急任务" },
-      ],
+      fullText: `当前有 ${activeFolders.length} 个活跃任务舱；所有未归档任务舱共完成 ${totals.done}/${totals.total} 项待办，整体待办进度为 ${progress}%。这是任务完成率，不代表 Agent 正在运行。`,
+      references,
+      actions: [{ id: genId(), label: "打开概览", variant: "primary", command: "open_dashboard" }],
     };
   }
 
-  if (t.includes("邮件") || t.includes("mail")) {
+  if (query.includes("新建") || query.includes("创建") || query.includes("建舱")) {
     return {
-      thinking: {
-        summary: "调用 Gmail 接口拉取今日邮件",
-        steps: [
-          "通过 imapflow 连接 Gmail",
-          "按时间倒序拉取最近 24h 邮件",
-          "应用规则匹配：含「deadline」「会议」「确认」关键词",
-          "命中 3 条，写入对应舱体的 materials 表",
-        ],
-      },
-      fullText:
-        "Gmail 已同步，今日新增 24 条邮件，其中 3 条匹配「待办」规则已自动入舱。需要我展示这 3 条的摘要吗？",
-      references: [
-        { kind: "integration", id: "i-gmail", label: "Gmail", meta: "今日 +24" },
-      ],
-      actions: [
-        { id: "a1", label: "查看摘要", variant: "primary", command: "展示邮件摘要" },
-        { id: "a2", label: "归档至舱", variant: "ghost", command: "归档邮件" },
-      ],
+      fullText: "本地任务助手不会根据一句话静默创建数据。你可以打开“新建任务舱”表单，确认名称、优先级和截止时间后再保存。",
+      actions: [{ id: genId(), label: "新建任务舱", variant: "primary", command: "create_folder" }],
+    };
+  }
+
+  if (query.includes("任务舱") || query.includes("任务") || query.includes("待办")) {
+    const listed = activeFolders.slice(0, 5);
+    return {
+      fullText: activeFolders.length > 0
+        ? `当前有 ${activeFolders.length} 个活跃任务舱。点击引用可以直接进入对应任务舱。`
+        : "当前没有活跃任务舱。可以从任务舱库新建一个。",
+      references: listed.map((folder) => ({ kind: "folder", id: folder.id, label: folder.name, meta: `进度 ${folder.progress}%` })),
+      actions: [{ id: genId(), label: "查看任务舱列表", variant: "primary", command: "open_folders" }],
     };
   }
 
   return {
-    fullText: `已记录指令：「${userText}」。我会在对应舱体的时间线中留痕，并在下一次心跳（30min）时执行。如需立即执行，点击下方按钮。`,
-    actions: [
-      { id: "a1", label: "立即执行", variant: "primary", command: "立即执行" },
-    ],
-  };
-}
-
-// 模拟流式 chunk 生成器（未来换成 deepseekStream 即可）
-async function* mockStream(plan: AgentReplyPlan): AsyncGenerator<{
-  type: "chunk" | "done";
-  chunk?: string;
-  meta?: import("@/types").CopilotMeta;
-}> {
-  // 模拟先思考，再逐字输出
-  await new Promise((r) => setTimeout(r, 200));
-  const chunks = plan.fullText.match(/[^。！？，、；]+[。！？，、；]?/g) || [plan.fullText];
-  for (const c of chunks) {
-    await new Promise((r) => setTimeout(r, 40 + Math.random() * 60));
-    yield { type: "chunk", chunk: c };
-  }
-  yield {
-    type: "done",
-    meta: {
-      model: "deepseek-chat",
-      tokensIn: 128,
-      tokensOut: plan.fullText.length,
-      durationMs: chunks.length * 60 + 200,
-    },
+    fullText: "这个请求超出了本地任务助手目前的能力。我现在可以查询：今日进度、临期任务、任务舱列表和适配器接入状态；不会在后台替你执行未确认的操作。",
   };
 }
 
@@ -210,8 +184,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   folders: [],
   integrations: [],
   workflows: [],
-  // Copilot 尚未接模型运行时；其余运行状态来自数据库或主进程事件。
-  copilotMessages: mockCopilotMessages,
+  copilotMessages: [newCopilotWelcome()],
   copilotOpen: false,
   copilotStreaming: false,
   notifications: [],
@@ -432,6 +405,20 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     return material;
   },
 
+  updateNoteMaterial: async (folderId, materialId, content) => {
+    const material = await window.missionConsole.updateNoteMaterial(folderId, materialId, content);
+    const refreshed = await window.missionConsole.getFolder(folderId);
+    set((state) => ({
+      folders: state.folders.map((folder) => folder.id === folderId
+        ? refreshed ?? {
+            ...folder,
+            materials: folder.materials.map((item) => item.id === materialId ? material : item),
+          }
+        : folder),
+    }));
+    return material;
+  },
+
   deleteMaterial: async (folderId, materialId) => {
     const deleted = await window.missionConsole.deleteMaterial(folderId, materialId);
     if (deleted) {
@@ -457,53 +444,21 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       content,
       timestamp: Date.now(),
     };
-    const agentMsgId = genId();
-    const plan = planAgentReply(content);
+    const plan = planLocalReply(content, get().folders, get().integrations);
     const agentMsg: CopilotMessage = {
-      id: agentMsgId,
+      id: genId(),
       role: "agent",
-      content: "",
+      content: plan.fullText,
       timestamp: Date.now() + 1,
-      streaming: true,
       thinking: plan.thinking,
       references: plan.references,
-      // actions 在流式完成后才显示
+      actions: plan.actions,
     };
 
     set((s) => ({
       copilotMessages: [...s.copilotMessages, userMsg, agentMsg],
-      copilotStreaming: true,
+      copilotStreaming: false,
     }));
-
-    // 异步消费流
-    (async () => {
-      const stream = mockStream(plan);
-      for await (const item of stream) {
-        if (item.type === "chunk" && item.chunk) {
-          set((s) => ({
-            copilotMessages: s.copilotMessages.map((m) =>
-              m.id === agentMsgId
-                ? { ...m, content: m.content + item.chunk }
-                : m
-            ),
-          }));
-        } else if (item.type === "done") {
-          set((s) => ({
-            copilotMessages: s.copilotMessages.map((m) =>
-              m.id === agentMsgId
-                ? {
-                    ...m,
-                    streaming: false,
-                    actions: plan.actions,
-                    meta: item.meta,
-                  }
-                : m
-            ),
-            copilotStreaming: false,
-          }));
-        }
-      }
-    })();
   },
 
   pushCopilot: (content) =>
@@ -513,6 +468,8 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         { id: genId(), role: "agent", content, timestamp: Date.now() },
       ],
     })),
+
+  clearCopilot: () => set({ copilotMessages: [newCopilotWelcome()], copilotStreaming: false }),
 
   runCopilotAction: (messageId, actionId) =>
     set((s) => ({

@@ -27,6 +27,7 @@ export {
   setFolderStatus,
   toggleTodo,
   addMaterial,
+  updateNoteMaterial,
   deleteMaterial,
   toggleAgent,
   updateAgentConfig,
