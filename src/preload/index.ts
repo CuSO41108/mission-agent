@@ -94,12 +94,12 @@ const api = {
     >,
   // Agent 开关
   toggleAgent: (folderId: string, enabled: boolean) =>
-    ipcRenderer.invoke("agent:toggle", folderId, enabled) as Promise<boolean>,
+    ipcRenderer.invoke("agent:toggle", folderId, enabled) as Promise<TaskFolder>,
   updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) =>
     ipcRenderer.invoke("agent:updateConfig", folderId, input) as Promise<TaskFolder>,
   // Workflow 开关
   toggleWorkflow: (workflowId: string, enabled: boolean) =>
-    ipcRenderer.invoke("workflow:toggle", workflowId, enabled) as Promise<boolean>,
+    ipcRenderer.invoke("workflow:toggle", workflowId, enabled) as Promise<WorkflowRule>,
 
   // ============ 心跳（Phase 5） ============
   // 手动触发一次心跳巡检所有 enabled 舱体

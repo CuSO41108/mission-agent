@@ -12,7 +12,14 @@ import { TodoRepository } from "../repositories/todoRepository";
 import { getDb } from "../db/client";
 import { getFolderDetail } from "../services/folderService";
 import { emitWorkflowEvent } from "../workflow/events";
-import { prepareMaterialTask, writeArtifact, type MaterialTaskContext } from "./materialTask";
+import {
+  commitStagedArtifact,
+  discardStagedArtifact,
+  prepareMaterialTask,
+  stageArtifact,
+  type MaterialTaskContext,
+  type StagedArtifact,
+} from "./materialTask";
 import type { ArtifactFormat, TaskFolder, Todo, WorkflowRun } from "../../renderer/types";
 
 export interface AgentResult {
@@ -261,6 +268,10 @@ export async function runAgentOnce(
     return failure(folder, "task_permission_denied", "Agent 缺少通知权限，不能执行跟进提醒待办", "AGENT_NOTIFY_PERMISSION_REQUIRED", todo);
   }
 
+  if (writesArtifact && !options.artifactRoot) {
+    return failure(folder, "artifact_storage_not_configured", "Agent 产物目录尚未配置，未生成文件", "ARTIFACT_STORAGE_NOT_CONFIGURED", todo ?? undefined);
+  }
+
   const task = todo ? prepareMaterialTask(folder, todo, options.artifactRoot) : null;
   const messages: ChatMessage[] = todo && task
     ? [
@@ -285,12 +296,15 @@ export async function runAgentOnce(
       maxTokens: writesArtifact ? 4096 : 1024,
     });
     let artifactPath: string | undefined;
+    let stagedArtifact: StagedArtifact | undefined;
+    let artifactFinalized = false;
     let createdSubtasks: Array<{ id: string; title: string }> = [];
     const db = getDb();
     db.exec("BEGIN;");
     try {
       if (writesArtifact && task && todo) {
-        artifactPath = writeArtifact(folder, task, result.content);
+        stagedArtifact = stageArtifact(folder, task, result.content);
+        artifactPath = stagedArtifact.outputPath;
         const materialId = `m-agent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         MaterialRepository.insert({
           id: materialId,
@@ -314,9 +328,14 @@ export async function runAgentOnce(
             : `心跳巡检：${result.content.slice(0, 100)}`;
       writeTimeline(folderId, "agent", action, { todoId: todo?.id, artifactPath, model: result.model, tokens: result.usage?.totalTokens, createdSubtasks: createdSubtasks.map((item) => item.title) });
       updateLastAction(folderId);
+      if (stagedArtifact) {
+        commitStagedArtifact(stagedArtifact);
+        artifactFinalized = true;
+      }
       db.exec("COMMIT;");
     } catch (caught) {
       db.exec("ROLLBACK;");
+      if (stagedArtifact) discardStagedArtifact(stagedArtifact, artifactFinalized);
       throw caught;
     }
 

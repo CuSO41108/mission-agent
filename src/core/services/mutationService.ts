@@ -19,6 +19,7 @@ import type {
   TaskFolder,
   Material,
   FolderStatus,
+  WorkflowRule,
 } from "../../renderer/types";
 
 const genId = () =>
@@ -48,6 +49,12 @@ function logTimeline(
     timestamp: Date.now(),
     meta,
   });
+}
+
+function calculateFolderProgress(folderId: string): number {
+  const todos = TodoRepository.listByFolder(folderId);
+  const doneCount = todos.filter((todo) => todo.done).length;
+  return Math.round((doneCount / Math.max(todos.length, 1)) * 100);
 }
 
 // ============ Folder 写操作 ============
@@ -125,20 +132,29 @@ export function setFolderStatus(
   status: FolderStatus,
   actor: "human" | "agent" | "system" = "human",
 ): TaskFolder | null {
-  FolderRepository.updateStatus(folderId, status);
-  if (status === "done") {
-    FolderRepository.updateProgress(folderId, 100);
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (!("active paused done archived".split(" ") as FolderStatus[]).includes(status)) {
+    throw new Error("任务舱状态无效");
   }
-  logTimeline(folderId, actor, `状态变更为 ${status}`, { status });
-  const updated = FolderRepository.findById(folderId);
-  if (updated) {
-    emitWorkflowEvent({
-      type: "folder_status_changed",
-      folderId,
-      status,
-      timestamp: Date.now(),
-    });
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    FolderRepository.updateStatus(folderId, status);
+    FolderRepository.updateProgress(folderId, calculateFolderProgress(folderId));
+    logTimeline(folderId, actor, `状态变更为 ${status}`, { status });
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
   }
+  const updated = getFolderDetail(folderId);
+  emitWorkflowEvent({
+    type: "folder_status_changed",
+    folderId,
+    status,
+    timestamp: Date.now(),
+  });
   return updated;
 }
 
@@ -187,10 +203,7 @@ export function createTodo(
   db.exec("BEGIN;");
   try {
     TodoRepository.insert(todo, parentId);
-    const todos = TodoRepository.listByFolder(folderId);
-    const doneCount = todos.filter((item) => item.done).length;
-    const progress = Math.round((doneCount / Math.max(todos.length, 1)) * 100);
-    FolderRepository.updateProgress(folderId, progress);
+    FolderRepository.updateProgress(folderId, calculateFolderProgress(folderId));
     logTimeline(folderId, actor, `添加待办：${title}`, {
       todoId: todo.id,
       assignee: todo.assignee,
@@ -227,9 +240,7 @@ export function toggleTodo(folderId: string, todoId: string, done: boolean): Tas
     if (!TodoRepository.toggleDone(folderId, todoId, done)) {
       throw new Error("待办不存在或不属于当前任务舱");
     }
-    const todos = TodoRepository.listByFolder(folderId);
-    const doneCount = todos.filter((t) => t.done).length;
-    const progress = Math.round((doneCount / Math.max(todos.length, 1)) * 100);
+    const progress = calculateFolderProgress(folderId);
     FolderRepository.updateProgress(folderId, progress);
     logTimeline(folderId, "human", `${done ? "完成" : "取消完成"}待办`, {
       todoId,
@@ -266,17 +277,31 @@ export function addMaterial(
   folderId: string,
   material: Omit<Material, "id" | "folderId" | "addedAt">,
 ): Material {
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (folder.status === "archived") throw new Error("已归档任务舱不能添加材料");
+  const name = material.name.trim();
+  if (!name) throw new Error("材料名称不能为空");
   const newMaterial: Material = {
     ...material,
+    name,
     id: `m-${genId()}`,
     folderId,
     addedAt: Date.now(),
   };
-  MaterialRepository.insert(newMaterial);
-  logTimeline(folderId, "human", `添加材料：${material.name}`, {
-    materialId: newMaterial.id,
-    type: material.type,
-  });
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    MaterialRepository.insert(newMaterial);
+    logTimeline(folderId, "human", `添加材料：${name}`, {
+      materialId: newMaterial.id,
+      type: material.type,
+    });
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
   emitWorkflowEvent({
     type: "material_added",
     folderId,
@@ -308,21 +333,35 @@ export function deleteMaterial(folderId: string, materialId: string): boolean {
 /**
  * 切换 folder 的 Agent enabled 状态
  */
-export function toggleAgent(folderId: string, enabled: boolean): void {
+export function toggleAgent(folderId: string, enabled: boolean): TaskFolder {
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (folder.status === "archived") throw new Error("已归档任务舱不能启用或暂停 Agent");
   const cfg = AgentConfigRepository.findByFolder(folderId);
-  if (cfg) {
-    AgentConfigRepository.setEnabled(folderId, enabled);
-  } else {
-    // 没记录则 upsert 一条默认配置
-    AgentConfigRepository.upsert(folderId, {
-      enabled,
-      strategy: "follow_up",
-      permissions: { read: true, write: false, notify: false, create_subtask: false },
-      lastAction: null,
-      workflowId: null,
-    });
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    if (cfg) {
+      AgentConfigRepository.setEnabled(folderId, enabled);
+    } else {
+      // 没记录则 upsert 一条默认配置
+      AgentConfigRepository.upsert(folderId, {
+        enabled,
+        strategy: "follow_up",
+        permissions: { read: true, write: false, notify: false, create_subtask: false },
+        lastAction: null,
+        workflowId: null,
+      });
+    }
+    logTimeline(folderId, "human", `${enabled ? "启用" : "暂停"} Agent`, { enabled });
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
   }
-  logTimeline(folderId, "human", `${enabled ? "启用" : "暂停"} Agent`, { enabled });
+  const updated = getFolderDetail(folderId);
+  if (!updated) throw new Error("更新 Agent 状态后读取任务舱失败");
+  return updated;
 }
 
 export function updateAgentConfig(
@@ -348,16 +387,24 @@ export function updateAgentConfig(
     }
     permissions[key as keyof typeof permissions] = value;
   }
-  AgentConfigRepository.upsert(folderId, {
-    ...current,
-    strategy: input.strategy ?? current.strategy,
-    permissions,
-    workflowId: input.workflowId === undefined ? current.workflowId ?? null : input.workflowId,
-  });
-  logTimeline(folderId, "human", "更新 Agent 配置", {
-    strategy: input.strategy,
-    permissions: input.permissions,
-  });
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    AgentConfigRepository.upsert(folderId, {
+      ...current,
+      strategy: input.strategy ?? current.strategy,
+      permissions,
+      workflowId: input.workflowId === undefined ? current.workflowId ?? null : input.workflowId,
+    });
+    logTimeline(folderId, "human", "更新 Agent 配置", {
+      strategy: input.strategy,
+      permissions: input.permissions,
+    });
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
   const updated = getFolderDetail(folderId);
   if (!updated) throw new Error("更新 Agent 配置后读取任务舱失败");
   return updated;
@@ -368,8 +415,12 @@ export function updateAgentConfig(
 /**
  * 切换 workflow enabled 状态
  */
-export function toggleWorkflow(workflowId: string, enabled: boolean): void {
+export function toggleWorkflow(workflowId: string, enabled: boolean): WorkflowRule {
+  if (!WorkflowRepository.findById(workflowId)) throw new Error("工作流不存在");
   WorkflowRepository.setEnabled(workflowId, enabled);
+  const updated = WorkflowRepository.findById(workflowId);
+  if (!updated) throw new Error("更新工作流状态后读取失败");
+  return updated;
 }
 
 /**

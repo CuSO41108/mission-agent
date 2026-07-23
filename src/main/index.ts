@@ -476,10 +476,7 @@ function registerIpc(): void {
   // Agent 开关
   ipcMain.handle(
     "agent:toggle",
-    (_e, folderId: string, enabled: boolean) => {
-      toggleAgent(folderId, enabled);
-      return true;
-    },
+    (_e, folderId: string, enabled: boolean) => toggleAgent(folderId, enabled),
   );
   ipcMain.handle(
     "agent:updateConfig",
@@ -489,10 +486,7 @@ function registerIpc(): void {
   // Workflow 开关
   ipcMain.handle(
     "workflow:toggle",
-    (_e, workflowId: string, enabled: boolean) => {
-      toggleWorkflow(workflowId, enabled);
-      return true;
-    },
+    (_e, workflowId: string, enabled: boolean) => toggleWorkflow(workflowId, enabled),
   );
 
   // ============ 心跳（Phase 5） ============

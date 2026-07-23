@@ -3,7 +3,6 @@ import type {
   TaskFolder,
   IntegrationAdapter,
   WorkflowRule,
-  AgentActivity,
   CopilotMessage,
   Todo,
   Material,
@@ -23,7 +22,6 @@ interface MissionState {
   folders: TaskFolder[];
   integrations: IntegrationAdapter[];
   workflows: WorkflowRule[];
-  agentActivities: AgentActivity[];
   copilotMessages: CopilotMessage[];
   copilotOpen: boolean;
   copilotStreaming: boolean;
@@ -213,7 +211,6 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   integrations: [],
   workflows: [],
   // Copilot 尚未接模型运行时；其余运行状态来自数据库或主进程事件。
-  agentActivities: [],
   copilotMessages: mockCopilotMessages,
   copilotOpen: false,
   copilotStreaming: false,
@@ -262,9 +259,18 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     for (const folder of refreshed) {
       if (folder) byId.set(folder.id, folder);
     }
-    set((state) => ({
-      folders: state.folders.map((folder) => byId.get(folder.id) ?? folder),
-    }));
+    const requested = new Set(uniqueIds);
+    set((state) => {
+      const existingIds = new Set(state.folders.map((folder) => folder.id));
+      return {
+        folders: [
+          ...state.folders
+            .filter((folder) => !requested.has(folder.id) || byId.has(folder.id))
+            .map((folder) => byId.get(folder.id) ?? folder),
+          ...[...byId.values()].filter((folder) => !existingIds.has(folder.id)),
+        ],
+      };
+    });
   },
 
   refreshWorkflows: async () => {
@@ -322,8 +328,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     if (!folder) return;
     const newEnabled = !folder.agentConfig.enabled;
 
-    await window.missionConsole.toggleAgent(folderId, newEnabled);
-    await get().refreshFolders([folderId]);
+    const updated = await window.missionConsole.toggleAgent(folderId, newEnabled);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
+    }));
   },
 
   updateAgentConfig: async (folderId, input) => {
@@ -347,7 +355,11 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
   setFolderStatus: async (folderId, status) => {
     const updated = await window.missionConsole.setFolderStatus(folderId, status);
-    if (updated) await get().refreshFolders([folderId]);
+    if (updated) {
+      set((state) => ({
+        folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
+      }));
+    }
   },
 
   toggleWorkflow: async (id) => {
@@ -355,8 +367,10 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     if (!wf) return;
     const newEnabled = !wf.enabled;
 
-    await window.missionConsole.toggleWorkflow(id, newEnabled);
-    await get().refreshWorkflows();
+    const updated = await window.missionConsole.toggleWorkflow(id, newEnabled);
+    set((state) => ({
+      workflows: state.workflows.map((item) => (item.id === id ? updated : item)),
+    }));
   },
 
   createWorkflow: async (input) => {

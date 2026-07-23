@@ -14,6 +14,11 @@ export interface MaterialTaskContext {
   format: ArtifactFormat;
 }
 
+export interface StagedArtifact {
+  temporaryPath: string;
+  outputPath: string;
+}
+
 function existingLocalPath(material: Material): string | null {
   const candidate = material.content.trim();
   if (!candidate || !path.isAbsolute(candidate)) return null;
@@ -103,11 +108,11 @@ function stripMarkdownFence(content: string): string {
   return match ? match[1].trim() : trimmed;
 }
 
-export function writeArtifact(
+function prepareArtifact(
   folder: TaskFolder,
   task: MaterialTaskContext,
   generated: string,
-): string {
+): { outputPath: string; content: string } {
   fs.mkdirSync(task.outputDirectory, { recursive: true });
   let content = stripMarkdownFence(generated);
   if (task.format === "markdown") {
@@ -135,8 +140,49 @@ export function writeArtifact(
   if (fs.existsSync(outputPath)) {
     outputPath = path.join(task.outputDirectory, `${base}-${Date.now()}${extension}`);
   }
-  fs.writeFileSync(outputPath, content, { encoding: "utf8", flag: "wx" });
-  return outputPath;
+  return { outputPath, content };
+}
+
+export function stageArtifact(
+  folder: TaskFolder,
+  task: MaterialTaskContext,
+  generated: string,
+): StagedArtifact {
+  const { outputPath, content } = prepareArtifact(folder, task, generated);
+  const temporaryPath = `${outputPath}.pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  fs.writeFileSync(temporaryPath, content, { encoding: "utf8", flag: "wx" });
+  return { temporaryPath, outputPath };
+}
+
+export function commitStagedArtifact(staged: StagedArtifact): string {
+  fs.renameSync(staged.temporaryPath, staged.outputPath);
+  return staged.outputPath;
+}
+
+export function discardStagedArtifact(staged: StagedArtifact, includeOutput = false): void {
+  for (const candidate of includeOutput
+    ? [staged.temporaryPath, staged.outputPath]
+    : [staged.temporaryPath]) {
+    try {
+      if (fs.existsSync(candidate)) fs.unlinkSync(candidate);
+    } catch {
+      // 清理失败不覆盖原始执行错误；残留文件不登记为材料。
+    }
+  }
+}
+
+export function writeArtifact(
+  folder: TaskFolder,
+  task: MaterialTaskContext,
+  generated: string,
+): string {
+  const staged = stageArtifact(folder, task, generated);
+  try {
+    return commitStagedArtifact(staged);
+  } catch (error) {
+    discardStagedArtifact(staged, true);
+    throw error;
+  }
 }
 
 /** 兼容旧调用；新代码使用 writeArtifact。 */

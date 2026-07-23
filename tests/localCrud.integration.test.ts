@@ -7,6 +7,7 @@ import { load as yamlLoad } from "js-yaml";
 import { initConfigFile } from "../src/core/config/configLoader";
 import { closeDatabase, initDatabase } from "../src/core/db/client";
 import { migrateDatabase } from "../src/core/db/migrate";
+import { seedDatabase } from "../src/core/db/seed";
 import { getFolderDetail } from "../src/core/services/folderService";
 import {
   createIntegration,
@@ -22,6 +23,7 @@ import {
   deleteFolder,
   deleteMaterial,
   setFolderStatus,
+  toggleAgent,
   toggleTodo,
   updateAgentConfig,
 } from "../src/core/services/mutationService";
@@ -33,6 +35,25 @@ import {
 } from "../src/core/services/workflowService";
 import { dispatchWorkflowEvent, runWorkflow } from "../src/core/workflow/WorkflowEngine";
 import { runAgentOnce } from "../src/core/agent/AgentService";
+
+test("预设任务舱不再写入虚假运行时间线，进度按全部待办计算", () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  try {
+    seedDatabase();
+    const seeded = getFolderDetail("f-001");
+    assert.ok(seeded);
+    const allTodos = seeded.todos.flatMap(function flatten(todo): typeof seeded.todos {
+      return [todo, ...todo.subtasks.flatMap(flatten)];
+    });
+    const done = allTodos.filter((todo) => todo.done).length;
+    assert.equal(seeded.progress, Math.round((done / Math.max(allTodos.length, 1)) * 100));
+    assert.equal(seeded.timeline.length, 0);
+    assert.equal(seeded.agentConfig.lastAction, null);
+  } finally {
+    closeDatabase();
+  }
+});
 
 test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
   initDatabase({ dbPath: ":memory:" });
@@ -59,6 +80,15 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
     assert.equal(withTodo.todos[0].title, "整理测试材料");
     assert.equal(withTodo.todos[0].assignee, "agent");
 
+    const withChild = createTodo(folder.id, {
+      title: "检查整理结果",
+      dueDate: null,
+      assignee: "human",
+      parentId: withTodo.todos[0].id,
+    });
+    assert.equal(withChild.todos[0].subtasks.length, 1);
+    assert.equal(withChild.progress, 0);
+
     const otherFolder = createFolder({
       name: "另一个任务舱",
       category: "test",
@@ -71,7 +101,23 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
       /不属于当前任务舱/,
     );
     assert.equal(getFolderDetail(folder.id)?.todos[0].done, false);
-    assert.equal(toggleTodo(folder.id, withTodo.todos[0].id, true).todos[0].done, true);
+    const parentDone = toggleTodo(folder.id, withTodo.todos[0].id, true);
+    assert.equal(parentDone.todos[0].done, true);
+    assert.equal(parentDone.progress, 50);
+    const markedDone = setFolderStatus(folder.id, "done");
+    assert.equal(markedDone?.progress, 50);
+    const reopened = setFolderStatus(folder.id, "active");
+    assert.equal(reopened?.progress, 50);
+
+    getDb().prepare("UPDATE folders SET progress = 100 WHERE id = ?;").run(folder.id);
+    getDb().exec("DELETE FROM schema_version;");
+    getDb().prepare("INSERT INTO schema_version (version, applied_at) VALUES (3, ?);").run(Date.now());
+    migrateDatabase();
+    assert.equal(getFolderDetail(folder.id)?.progress, 50);
+
+    const enabled = toggleAgent(folder.id, true);
+    assert.equal(enabled.agentConfig.enabled, true);
+    assert.throws(() => toggleAgent("missing-folder", true), /任务舱不存在/);
 
     const material = addMaterial(folder.id, {
       type: "file",
@@ -305,6 +351,26 @@ test("分析型 Agent 待办不会自动生成文件或标记完成，读取权�
     assert.equal(result.artifactPath, undefined);
     assert.equal(getFolderDetail(folder.id)?.todos.find((todo) => todo.id === withTodo.todos[0].id)?.done, false);
     assert.equal(getFolderDetail(folder.id)?.materials.length, 0);
+
+    const artifactFolder = createFolder({
+      name: "产物目录保护测试",
+      category: "test",
+      priority: "low",
+      deadline: null,
+      agentEnabled: true,
+    });
+    createTodo(artifactFolder.id, {
+      title: "生成产物但不提供目录",
+      dueDate: null,
+      assignee: "agent",
+      agentTaskType: "artifact",
+    });
+    updateAgentConfig(artifactFolder.id, { permissions: { read: true, write: true } });
+    fetchCalled = false;
+    const noStorage = await runAgentOnce(artifactFolder.id, { apiKey: "test", baseUrl: "https://example.invalid", model: "test" });
+    assert.equal(noStorage.errorCode, "ARTIFACT_STORAGE_NOT_CONFIGURED");
+    assert.equal(fetchCalled, false);
+    assert.equal(getFolderDetail(artifactFolder.id)?.materials.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
     closeDatabase();
