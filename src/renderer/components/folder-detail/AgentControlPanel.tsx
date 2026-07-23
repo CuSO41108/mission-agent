@@ -26,6 +26,7 @@ import type {
   TaskFolder,
   WorkflowRun,
 } from "@/types";
+import type { AgentRunRecord } from "../../../core/agent";
 import { useMissionStore } from "@/store/useMissionStore";
 import { flattenTodos } from "@/lib/missionStats";
 import { relativeTime, shortTime } from "@/lib/format";
@@ -69,6 +70,7 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
   const [runMessage, setRunMessage] = useState("");
   const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+  const [agentRuns, setAgentRuns] = useState<AgentRunRecord[]>([]);
   const [modelStatus, setModelStatus] = useState<{ loaded: boolean; configured: boolean; model: string }>({
     loaded: false,
     configured: false,
@@ -169,11 +171,19 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
     }
   }, [folder.id, selectedWorkflowId]);
 
+  const loadAgentRuns = useCallback(async () => {
+    try {
+      setAgentRuns(await window.missionConsole.getAgentRuns(folder.id, 8));
+    } catch {
+      setAgentRuns([]);
+    }
+  }, [folder.id]);
+
   useEffect(() => {
-    void Promise.all([loadScheduler(), loadModelStatus()]);
-    const timer = window.setInterval(() => void Promise.all([loadScheduler(), loadModelStatus()]), 15_000);
+    void Promise.all([loadScheduler(), loadModelStatus(), loadAgentRuns()]);
+    const timer = window.setInterval(() => void Promise.all([loadScheduler(), loadModelStatus(), loadAgentRuns()]), 2_000);
     return () => window.clearInterval(timer);
-  }, [loadModelStatus, loadScheduler]);
+  }, [loadAgentRuns, loadModelStatus, loadScheduler]);
 
   useEffect(() => {
     void loadWorkflowRuns();
@@ -188,7 +198,7 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
       setRunMessage(result.ok
         ? result.summary ?? t("执行完成，结果已写入时间线。", "Completed. The result was added to the timeline.")
         : result.error ?? t("执行失败", "Failed"));
-      await Promise.all([loadScheduler(), loadWorkflowRuns()]);
+      await Promise.all([loadScheduler(), loadWorkflowRuns(), loadAgentRuns()]);
     } catch (error) {
       setRunMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -227,9 +237,12 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
     { key: "create_subtask", label: t("建子任务", "Create subtask"), icon: ListPlus },
   ] as const;
   const latestWorkflowRun = workflowRuns[0] ?? null;
+  const activeFolderRun = agentRuns.find((run) => run.status === "queued" || run.status === "running") ?? null;
 
-  const statusTitle = running
-    ? t("正在执行", "Running")
+  const statusTitle = activeFolderRun?.status === "queued"
+    ? t("已排队，等待资源", "Queued for resources")
+    : running || activeFolderRun?.status === "running"
+      ? t("正在执行", "Running")
     : latestRunFailed
       ? t("最近执行失败", "Last run failed")
       : latestAgentEvent
@@ -273,12 +286,12 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         <div className={cn(
           "px-3 py-2.5 border",
-          latestRunFailed ? "border-coral/30 bg-coral/5" : running ? "border-phosphor-400/35 bg-phosphor-400/5" : "border-white/8 bg-obsidian-950/30",
+          latestRunFailed ? "border-coral/30 bg-coral/5" : running || activeFolderRun ? "border-phosphor-400/35 bg-phosphor-400/5" : "border-white/8 bg-obsidian-950/30",
         )}>
           <div className="flex items-center gap-2">
             {latestRunFailed
               ? <XCircle className="w-3.5 h-3.5 text-coral" />
-              : running
+              : running || activeFolderRun
                 ? <Loader2 className="w-3.5 h-3.5 text-phosphor-400 animate-spin" />
                 : <Activity className="w-3.5 h-3.5 text-jade" />}
             <span className="text-[12px] font-medium text-ink">{statusTitle}</span>
@@ -333,7 +346,7 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
         <button
           type="button"
           onClick={() => void runNow()}
-          disabled={running || executionBlockers.length > 0}
+          disabled={running || Boolean(activeFolderRun) || executionBlockers.length > 0}
           className="btn-phosphor w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <PlayCircle className="w-3 h-3" />}
@@ -344,6 +357,33 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
               : t("立即执行托管巡检", "Run managed scan now")}
         </button>
         {runMessage && <p className="px-2 py-1.5 text-[10px] leading-relaxed text-ink-muted border border-white/5">{runMessage}</p>}
+
+        <section className="px-3 py-2.5 border border-white/8">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-faint">
+              <Activity className="w-3 h-3 text-violet" /> {t("最近 Run", "Recent Runs")}
+            </div>
+            <Link to="/agents" className="text-[9px] text-phosphor-600 hover:underline">
+              {t("打开运行控制台", "Open Run console")}
+            </Link>
+          </div>
+          <div className="mt-2 space-y-1">
+            {agentRuns.slice(0, 5).map((run) => (
+              <div key={run.id} className="flex items-center gap-2 text-[9px] data-mono text-ink-faint">
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0",
+                  run.status === "succeeded" ? "bg-jade" : run.status === "failed" ? "bg-coral" : run.status === "cancelled" ? "bg-ink-faint" : "bg-amber-400",
+                )} />
+                <span className="uppercase">{run.status}</span>
+                <span>· {run.source}</span>
+                <span className="ml-auto">{shortTime(run.queuedAt)}</span>
+              </div>
+            ))}
+            {agentRuns.length === 0 && (
+              <p className="text-[9px] text-ink-faint">{t("还没有持久化运行记录", "No persisted Run history yet")}</p>
+            )}
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 gap-2">
           <section className="px-3 py-2.5 border border-white/8">

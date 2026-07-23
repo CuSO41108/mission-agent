@@ -24,6 +24,7 @@ import type {
   CopilotModelResult,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
+import type { AgentRunRecord } from "../core/agent";
 
 const api = {
   // ============ 应用信息 ============
@@ -142,6 +143,14 @@ const api = {
       lastError: string | null;
       nextRunAt: number | null;
     }>,
+  getAgentRuns: (folderId?: string | null, limit = 50) =>
+    ipcRenderer.invoke("agent:runs", folderId, limit) as Promise<AgentRunRecord[]>,
+  cancelAgentRun: (runId: string) =>
+    ipcRenderer.invoke("agent:cancelRun", runId) as Promise<{ ok: boolean }>,
+  retryAgentRun: (runId: string) =>
+    ipcRenderer.invoke("agent:retryRun", runId) as Promise<
+      { ok: true; run: AgentRunRecord } | { ok: false; error: string }
+    >,
 
   // ============ Agent 事件订阅（主进程主动推送） ============
   /**

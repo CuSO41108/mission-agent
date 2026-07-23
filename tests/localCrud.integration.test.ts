@@ -38,6 +38,15 @@ import { dispatchWorkflowEvent, runWorkflow } from "../src/core/workflow/Workflo
 import { runAgentOnce } from "../src/core/agent/AgentService";
 import { AgentRunRepository } from "../src/core/repositories/agentRunRepository";
 import { tick } from "../src/core/workflow/WorkflowService";
+import { AgentRunQueue } from "../src/core/agent/AgentRunQueue";
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("等待条件超时");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 
 test("Agent Run 持久化去重并以任务舱租约互斥", () => {
   initDatabase({ dbPath: ":memory:" });
@@ -69,6 +78,107 @@ test("Agent Run 持久化去重并以任务舱租约互斥", () => {
     const next = AgentRunRepository.enqueue({ folderId: folder.id, source: "manual" });
     assert.equal(next.created, true);
   } finally {
+    closeDatabase();
+  }
+});
+
+test("同舱资源冲突的 Run 保持排队，并在资源释放后自动执行", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  let releaseFirst: (() => void) | null = null;
+  const started: string[] = [];
+  const queue = new AgentRunQueue(async (folderId) => {
+    started.push(folderId);
+    if (started.length === 1) {
+      await new Promise<void>((resolve) => { releaseFirst = resolve; });
+    }
+    return { folderId, folderName: "队列测试", summary: "完成", action: "test", ok: true };
+  });
+  try {
+    const folder = createFolder({ name: "同舱队列", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    const firstTodo = createTodo(folder.id, { title: "任务一", dueDate: null, assignee: "agent" }).todos[0];
+    const secondTodo = createTodo(folder.id, { title: "任务二", dueDate: null, assignee: "agent" }).todos[1];
+    queue.configure(() => ({
+      config: { apiKey: "test", baseUrl: "https://example.invalid", model: "test" },
+      options: { modelConcurrency: 2 },
+    }));
+
+    const first = queue.enqueue({ folderId: folder.id, todoId: firstTodo.id, source: "manual" });
+    const second = queue.enqueue({ folderId: folder.id, todoId: secondTodo.id, source: "manual" });
+    await waitUntil(() => AgentRunRepository.getById(first.run.id)?.status === "running");
+    assert.equal(AgentRunRepository.getById(second.run.id)?.status, "queued");
+
+    assert.ok(releaseFirst);
+    releaseFirst();
+    await waitUntil(() => AgentRunRepository.getById(second.run.id)?.status === "succeeded");
+    assert.equal(started.length, 2);
+  } finally {
+    queue.stop();
+    closeDatabase();
+  }
+});
+
+test("应用重启后 queued Run 自动恢复，遗留 running Run 不重放", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const queue = new AgentRunQueue(async (folderId) => ({
+    folderId,
+    folderName: "恢复测试",
+    summary: "恢复完成",
+    action: "test",
+    ok: true,
+  }));
+  try {
+    const queuedFolder = createFolder({ name: "排队恢复", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    const interruptedFolder = createFolder({ name: "中断保护", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    const queued = AgentRunRepository.enqueue({ folderId: queuedFolder.id, source: "heartbeat" });
+    const interrupted = AgentRunRepository.enqueue({ folderId: interruptedFolder.id, source: "manual" });
+    assert.equal(AgentRunRepository.claim(interrupted.run.id)?.status, "running");
+    assert.equal(AgentRunRepository.recoverInterruptedRuns(), 1);
+    assert.equal(AgentRunRepository.getById(interrupted.run.id)?.errorCode, "APP_INTERRUPTED");
+
+    queue.configure(() => ({
+      config: { apiKey: "test", baseUrl: "https://example.invalid", model: "test" },
+      options: { modelConcurrency: 2 },
+    }));
+    await waitUntil(() => AgentRunRepository.getById(queued.run.id)?.status === "succeeded");
+    assert.equal(AgentRunRepository.getById(interrupted.run.id)?.status, "cancelled");
+  } finally {
+    queue.stop();
+    closeDatabase();
+  }
+});
+
+test("运行中的 Run 可安全取消，重试创建带关联的新 Run", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  let attempts = 0;
+  const queue = new AgentRunQueue(async (folderId, _config, options) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await new Promise<void>((resolve) => options.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      return { folderId, folderName: "取消测试", summary: "已取消", action: "test", ok: false, error: "已取消", errorCode: "RUN_CANCELLED" };
+    }
+    return { folderId, folderName: "取消测试", summary: "重试成功", action: "test", ok: true };
+  });
+  try {
+    const folder = createFolder({ name: "取消与重试", category: "test", priority: "medium", deadline: null, agentEnabled: true });
+    queue.configure(() => ({
+      config: { apiKey: "test", baseUrl: "https://example.invalid", model: "test" },
+      options: { modelConcurrency: 1 },
+    }));
+    const first = queue.enqueue({ folderId: folder.id, source: "manual" });
+    await waitUntil(() => AgentRunRepository.getById(first.run.id)?.status === "running");
+    assert.equal(queue.cancel(first.run.id), true);
+    await waitUntil(() => AgentRunRepository.getById(first.run.id)?.status === "cancelled");
+    assert.equal(AgentRunRepository.getById(first.run.id)?.errorCode, "USER_CANCELLED");
+
+    const retried = queue.retry(first.run.id);
+    assert.equal(retried.created, true);
+    assert.equal(retried.run.retryOfRunId, first.run.id);
+    await waitUntil(() => AgentRunRepository.getById(retried.run.id)?.status === "succeeded");
+  } finally {
+    queue.stop();
     closeDatabase();
   }
 });

@@ -22,6 +22,9 @@ export interface AgentRunRecord {
   summary: string | null;
   error: string | null;
   errorCode: string | null;
+  model: string | null;
+  /** 手动重试时指向原 Run；原记录保持不变，便于审计。 */
+  retryOfRunId: string | null;
 }
 
 export interface EnqueueAgentRunInput {
@@ -30,4 +33,6 @@ export interface EnqueueAgentRunInput {
   source: AgentRunSource;
   /** 调度预检确定的互斥资源；当前默认按任务舱互斥。 */
   lockKey?: string;
+  retryOfRunId?: string | null;
+  model?: string | null;
 }

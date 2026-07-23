@@ -5,64 +5,31 @@
 import { FolderRepository } from "../repositories/folderRepository";
 import { AgentConfigRepository } from "../repositories/agentConfigRepository";
 import { TimelineRepository } from "../repositories/timelineRepository";
-import { AgentRunRepository } from "../repositories/agentRunRepository";
 import {
-  runAgentOnce,
+  agentRunQueue,
   type AgentResult,
   type AgentRunOptions,
 } from "../agent";
 import type { AgentRunSource } from "../agent/runTypes";
 import { getManualRunDenial, isHeartbeatEligible } from "./agentRunPolicy";
 
-function skippedRun(folderId: string, folderName: string, message: string): AgentResult {
-  return {
-    folderId,
-    folderName,
-    summary: message,
-    action: "agent_run_busy",
-    ok: false,
-    error: message,
-    errorCode: "AGENT_RUN_BUSY",
-  };
-}
-
 /**
- * 执行前将 Run 与任务舱资源租约写入本地 SQLite。
- * 当前默认资源是 folder:<id>，因此同一任务舱始终串行；不同任务舱可受限并行。
+ * 先持久化入队，再等待 Worker 在并发额度和任务舱资源都可用时自动执行。
+ * 当前默认资源是 folder:<id>，因此同一任务舱串行；不同任务舱受限并行。
  */
 async function runTrackedAgent(
   folderId: string,
-  folderName: string,
+  _folderName: string,
   source: AgentRunSource,
   deepseekConfig: { apiKey: string; baseUrl: string; model: string },
   options: AgentRunOptions,
 ): Promise<AgentResult> {
-  const queued = AgentRunRepository.enqueue({ folderId, source });
-  if (!queued.created) {
-    return skippedRun(folderId, folderName, "该任务舱已有 Agent Run 在等待或执行中");
-  }
-  const run = AgentRunRepository.claim(queued.run.id);
-  if (!run) {
-    AgentRunRepository.cancelQueued(queued.run.id, "任务舱资源正被其他 Run 使用", "RESOURCE_BUSY");
-    return skippedRun(folderId, folderName, "任务舱资源正被其他 Agent Run 使用");
-  }
-  try {
-    const result = await runAgentOnce(folderId, deepseekConfig, options);
-    AgentRunRepository.finish(run.id, result.ok ? "succeeded" : "failed", {
-      summary: result.summary,
-      error: result.error ?? null,
-      errorCode: result.errorCode ?? null,
-    });
-    return result;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    AgentRunRepository.finish(run.id, "failed", {
-      summary: `执行异常：${detail}`,
-      error: detail,
-      errorCode: "RUN_EXCEPTION",
-    });
-    throw error;
-  }
+  const { signal, ...runtimeOptions } = options;
+  return agentRunQueue.enqueueAndWait(
+    { folderId, source },
+    { config: deepseekConfig, options: runtimeOptions },
+    signal,
+  );
 }
 
 /**
@@ -108,29 +75,22 @@ export async function tick(deepseekConfig: {
   const eligible = folders.filter((folder) =>
     isHeartbeatEligible(folder, AgentConfigRepository.findByFolder(folder.id)),
   );
-  const results: AgentResult[] = [];
-  const concurrency = Math.max(1, options.modelConcurrency ?? 1);
-  let nextIndex = 0;
-  const worker = async () => {
-    while (!options.signal?.aborted) {
-      const folder = eligible[nextIndex++];
-      if (!folder) return;
-      try {
-        const result = await runTrackedAgent(folder.id, folder.name, "heartbeat", deepseekConfig, options);
-        results.push(result);
-      } catch (err) {
-        results.push({
+  // 一次性持久化所有符合条件的 Run；真正的并发控制由 AgentRunQueue 统一负责。
+  // 这样即使资源暂时被占用，剩余任务也会留在 queued，而不是停在内存 worker 之外。
+  const results = await Promise.all(eligible.map(async (folder): Promise<AgentResult> => {
+    try {
+      return await runTrackedAgent(folder.id, folder.name, "heartbeat", deepseekConfig, options);
+    } catch (err) {
+      return {
           folderId: folder.id,
           folderName: folder.name,
           summary: `巡检异常：${err instanceof Error ? err.message : String(err)}`,
           action: "heartbeat_exception",
           ok: false,
           error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      };
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, eligible.length) }, () => worker()));
+  }));
 
   const succeeded = results.filter((r) => r.ok).length;
   const failed = results.length - succeeded;
@@ -153,6 +113,7 @@ export async function runFolderAgent(
   folderId: string,
   deepseekConfig: { apiKey: string; baseUrl: string; model: string },
   options: AgentRunOptions = {},
+  source: AgentRunSource = "manual",
 ): Promise<AgentResult> {
   const folder = FolderRepository.findById(folderId);
   const agentConfig = folder ? AgentConfigRepository.findByFolder(folderId) : null;
@@ -168,7 +129,7 @@ export async function runFolderAgent(
       errorCode: denial.code,
     };
   }
-  return runTrackedAgent(folderId, folder.name, "manual", deepseekConfig, options);
+  return runTrackedAgent(folderId, folder.name, source, deepseekConfig, options);
 }
 
 // 导出 TimelineRepository 供 main 使用（写 timeline）

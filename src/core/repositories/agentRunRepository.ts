@@ -19,6 +19,8 @@ type AgentRunRow = DbRow & {
   summary: string | null;
   error: string | null;
   error_code: string | null;
+  model: string | null;
+  retry_of_run_id: string | null;
 };
 
 export function mapAgentRun(row: AgentRunRow): AgentRunRecord {
@@ -35,6 +37,8 @@ export function mapAgentRun(row: AgentRunRow): AgentRunRecord {
     summary: row.summary,
     error: row.error,
     errorCode: row.error_code,
+    model: row.model,
+    retryOfRunId: row.retry_of_run_id,
   };
 }
 
@@ -71,16 +75,18 @@ export const AgentRunRepository = {
       summary: null,
       error: null,
       errorCode: null,
+      model: input.model ?? null,
+      retryOfRunId: input.retryOfRunId ?? null,
     };
     const db = getDb();
     db.prepare(`
       INSERT INTO agent_runs (
         id, folder_id, todo_id, source, status, lock_key, queued_at,
-        started_at, finished_at, summary, error, error_code
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, finished_at, summary, error, error_code, model, retry_of_run_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       run.id, run.folderId, run.todoId, run.source, run.status, run.lockKey,
-      run.queuedAt, null, null, null, null, null,
+      run.queuedAt, null, null, null, null, null, run.model, run.retryOfRunId,
     );
     return { run, created: true };
   },
@@ -97,6 +103,21 @@ export const AgentRunRepository = {
   listRecent(limit = 50): AgentRunRecord[] {
     const db = getDb();
     return (db.prepare("SELECT * FROM agent_runs ORDER BY queued_at DESC LIMIT ?").all(limit) as AgentRunRow[]).map(mapAgentRun);
+  },
+
+  listRecentByFolder(folderId: string, limit = 20): AgentRunRecord[] {
+    const db = getDb();
+    return (db.prepare(`
+      SELECT * FROM agent_runs
+      WHERE folder_id = ?
+      ORDER BY queued_at DESC
+      LIMIT ?
+    `).all(folderId, limit) as AgentRunRow[]).map(mapAgentRun);
+  },
+
+  getById(id: string): AgentRunRecord | null {
+    const row = getDb().prepare("SELECT * FROM agent_runs WHERE id = ?;").get(id) as AgentRunRow | undefined;
+    return row ? mapAgentRun(row) : null;
   },
 
   /**
@@ -137,6 +158,44 @@ export const AgentRunRepository = {
     }
   },
 
+  /** 按 FIFO 扫描队列，跳过资源冲突项并原子认领第一个可运行的 Run。 */
+  claimNext(leaseMs = 24 * 60 * 60_000): AgentRunRecord | null {
+    const db = getDb();
+    const now = Date.now();
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+      db.prepare("DELETE FROM agent_resource_locks WHERE expires_at <= ?;").run(now);
+      const rows = db.prepare(`
+        SELECT * FROM agent_runs
+        WHERE status = 'queued'
+        ORDER BY queued_at ASC, id ASC
+      `).all() as AgentRunRow[];
+      for (const row of rows) {
+        const run = mapAgentRun(row);
+        const lock = db.prepare(`
+          INSERT INTO agent_resource_locks (lock_key, run_id, expires_at, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(lock_key) DO NOTHING
+        `).run(run.lockKey, run.id, now + leaseMs, now);
+        if (Number(lock.changes) !== 1) continue;
+        const changed = db.prepare(`
+          UPDATE agent_runs SET status = 'running', started_at = ?
+          WHERE id = ? AND status = 'queued'
+        `).run(now, run.id);
+        if (Number(changed.changes) === 1) {
+          db.exec("COMMIT;");
+          return { ...run, status: "running", startedAt: now };
+        }
+        db.prepare("DELETE FROM agent_resource_locks WHERE run_id = ?;").run(run.id);
+      }
+      db.exec("COMMIT;");
+      return null;
+    } catch (error) {
+      db.exec("ROLLBACK;");
+      throw error;
+    }
+  },
+
   finish(
     id: string,
     status: Extract<AgentRunStatus, "succeeded" | "failed" | "cancelled">,
@@ -158,13 +217,14 @@ export const AgentRunRepository = {
     }
   },
 
-  cancelQueued(id: string, error: string, errorCode: string): void {
+  cancelQueued(id: string, error: string, errorCode: string): boolean {
     const db = getDb();
-    db.prepare(`
+    const result = db.prepare(`
       UPDATE agent_runs
       SET status = 'cancelled', finished_at = ?, error = ?, error_code = ?
       WHERE id = ? AND status = 'queued'
     `).run(Date.now(), error, errorCode, id);
+    return Number(result.changes) === 1;
   },
 
   /** 应用非正常退出后不重放副作用；把遗留 running Run 标记为取消并释放锁。 */
