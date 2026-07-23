@@ -10,9 +10,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
+import { useMissionStore } from "@/store/useMissionStore";
+import { isAgentOnline } from "@/lib/missionStats";
 
 export default function Sidebar() {
   const { text: t } = usePreferences();
+  const activeAgentCount = useMissionStore((state) => state.folders.filter(isAgentOnline).length);
   const nav = [
     { to: "/", label: t("概览", "Overview"), icon: LayoutDashboard },
     { to: "/folders", label: t("任务舱", "Mission folders"), icon: FolderKanban },
@@ -74,7 +77,7 @@ export default function Sidebar() {
           <span className="text-ink-faint">Agent</span>
           <span className="flex items-center gap-1.5 text-ink-muted">
             <span className="w-1.5 h-1.5 rounded-full bg-jade" />
-            {t("3 个运行中", "3 active")}
+            {t(`${activeAgentCount} 个运行中`, `${activeAgentCount} active`)}
           </span>
         </div>
         <NavLink

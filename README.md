@@ -58,7 +58,7 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
 ### Agent 控制台
 
 <p align="center">
-  <img src="./docs/screenshots/agents.png" alt="Agent 状态与运行事件审计" width="1000">
+  <img src="./docs/screenshots/agents.png" alt="Agent 状态与本地运行记录" width="1000">
 </p>
 
 <p align="center"><sub>Agent 执行结果会通过主进程事件通知渲染层重新读取 SQLite，数据库是唯一业务真相。</sub></p>

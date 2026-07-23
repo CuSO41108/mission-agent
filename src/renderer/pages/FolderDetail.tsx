@@ -235,8 +235,8 @@ export default function FolderDetail() {
 
           {/* 右：Agent 面板 + 时间线 */}
           <div className="col-span-12 lg:col-span-3 flex flex-col gap-4 h-full min-h-0">
-            <div className="panel shrink-0 max-h-[360px] overflow-hidden flex flex-col">
-              <AgentControlPanel folderId={folder.id} config={folder.agentConfig} />
+            <div className="panel shrink-0 max-h-[460px] min-h-[360px] overflow-hidden flex flex-col">
+              <AgentControlPanel folder={folder} />
             </div>
             <div className="panel flex-1 min-h-0 overflow-hidden flex flex-col">
               <TimelineView entries={folder.timeline} />

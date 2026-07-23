@@ -473,13 +473,20 @@ function registerIpc(): void {
     const error = await shell.openPath(target);
     return error ? { ok: false, error } : { ok: true };
   });
+  ipcMain.handle("material:reveal", (_e, folderId: string, materialId: string) => {
+    const material = getFolderDetail(folderId)?.materials.find((item) => item.id === materialId);
+    if (!material) return { ok: false, error: "材料不存在或不属于当前任务舱" };
+    const target = material.content.trim();
+    if (!path.isAbsolute(target) || !fs.existsSync(target)) {
+      return { ok: false, error: "该材料没有可定位的本地文件" };
+    }
+    shell.showItemInFolder(target);
+    return { ok: true };
+  });
   // Agent 开关
   ipcMain.handle(
     "agent:toggle",
-    (_e, folderId: string, enabled: boolean) => {
-      toggleAgent(folderId, enabled);
-      return true;
-    },
+    (_e, folderId: string, enabled: boolean) => toggleAgent(folderId, enabled),
   );
   ipcMain.handle(
     "agent:updateConfig",
@@ -489,10 +496,7 @@ function registerIpc(): void {
   // Workflow 开关
   ipcMain.handle(
     "workflow:toggle",
-    (_e, workflowId: string, enabled: boolean) => {
-      toggleWorkflow(workflowId, enabled);
-      return true;
-    },
+    (_e, workflowId: string, enabled: boolean) => toggleWorkflow(workflowId, enabled),
   );
 
   // ============ 心跳（Phase 5） ============

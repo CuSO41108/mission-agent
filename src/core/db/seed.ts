@@ -19,20 +19,12 @@ export function seedDatabase(): void {
   try {
     for (const folder of mockFolders) {
       insertFolder(folder);
-      for (const todo of folder.todos) {
-        insertTodo(todo, folder.id, null);
-        // 展开嵌套 subtasks（parent_id 指向父 todo）
-        for (const sub of todo.subtasks) {
-          insertTodo(sub, folder.id, todo.id);
-        }
-      }
+      insertTodoTree(folder.todos, folder.id, null);
       for (const material of folder.materials) {
         insertMaterial(material);
       }
-      for (const entry of folder.timeline) {
-        insertTimeline(entry);
-      }
       insertAgentConfig(folder.id, folder.agentConfig);
+      recalculateProgress(folder.id);
     }
 
     db.exec("COMMIT;");
@@ -113,22 +105,6 @@ function insertMaterial(material: TaskFolder["materials"][number]): void {
   );
 }
 
-function insertTimeline(entry: TaskFolder["timeline"][number]): void {
-  const db = getDb();
-  db.prepare(
-    `INSERT OR IGNORE INTO timeline
-      (id, folder_id, actor, action, meta, timestamp)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(
-    entry.id,
-    entry.folderId,
-    entry.actor,
-    entry.action,
-    entry.meta ? JSON.stringify(entry.meta) : null,
-    entry.timestamp,
-  );
-}
-
 function insertAgentConfig(
   folderId: string,
   config: TaskFolder["agentConfig"],
@@ -144,6 +120,32 @@ function insertAgentConfig(
     config.strategy,
     JSON.stringify(config.permissions),
     config.workflowId ?? null,
-    config.lastAction,
+    null,
   );
+}
+
+function insertTodoTree(
+  todos: TaskFolder["todos"],
+  folderId: string,
+  parentId: string | null,
+): void {
+  for (const todo of todos) {
+    insertTodo(todo, folderId, parentId);
+    insertTodoTree(todo.subtasks, folderId, todo.id);
+  }
+}
+
+function recalculateProgress(folderId: string): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE folders
+    SET progress = CASE
+      WHEN (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id) = 0 THEN 0
+      ELSE CAST(ROUND(
+        100.0 * (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id AND todos.done = 1)
+        / (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id)
+      ) AS INTEGER)
+    END
+    WHERE id = ?;
+  `).run(folderId);
 }

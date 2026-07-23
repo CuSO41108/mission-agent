@@ -83,6 +83,36 @@ export function migrateDatabase(): void {
       `);
     }
 
+    if (currentVersion < 4) {
+      db.exec(`
+        DELETE FROM timeline
+        WHERE id IN (
+          'tl-001', 'tl-002', 'tl-003', 'tl-004',
+          'tl-101', 'tl-102', 'tl-103',
+          'tl-201', 'tl-202',
+          'tl-301', 'tl-302',
+          'tl-401', 'tl-402',
+          'tl-501', 'tl-502'
+        );
+        UPDATE agent_configs
+        SET last_action = NULL
+        WHERE folder_id IN ('f-001', 'f-002', 'f-003', 'f-004', 'f-005', 'f-006')
+          AND NOT EXISTS (
+            SELECT 1 FROM timeline
+            WHERE timeline.folder_id = agent_configs.folder_id
+              AND timeline.actor = 'agent'
+          );
+        UPDATE folders
+        SET progress = CASE
+          WHEN (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id) = 0 THEN 0
+          ELSE CAST(ROUND(
+            100.0 * (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id AND todos.done = 1)
+            / (SELECT COUNT(*) FROM todos WHERE todos.folder_id = folders.id)
+          ) AS INTEGER)
+        END;
+      `);
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",

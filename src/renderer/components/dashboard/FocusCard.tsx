@@ -6,6 +6,7 @@ import { countdown } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePreferences } from "@/i18n";
 import { accentTint, themeAccent } from "@/lib/theme";
+import { countTodos } from "@/lib/missionStats";
 
 interface FocusCardProps {
   folder: TaskFolder;
@@ -16,7 +17,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
   const { locale, text: t } = usePreferences();
   const cd = countdown(folder.deadline, locale);
   const isHero = variant === "hero";
-  const doneTodos = folder.todos.filter((t) => t.done).length;
+  const todoCounts = countTodos(folder.todos);
   const coverColor = themeAccent(folder.coverColor);
 
   return (
@@ -25,7 +26,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
       className={cn(
         "group relative block panel overflow-hidden transition-all duration-200",
         "hover:border-obsidian-600 hover:shadow-panel",
-        isHero ? "p-5 h-full" : "p-3.5 h-full"
+        isHero ? "p-4 sm:p-5 h-full min-h-[210px]" : "p-3.5 h-full"
       )}
       style={{ borderColor: accentTint(folder.coverColor, 0.19) }}
     >
@@ -56,15 +57,15 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
 
         <h3
           className={cn(
-            "font-display font-bold text-ink leading-tight mb-3 line-clamp-2",
-            isHero ? "text-lg" : "text-[13px]"
+            "font-display font-bold text-ink leading-snug mb-2 break-words [overflow-wrap:anywhere]",
+            isHero ? "text-base sm:text-lg" : "text-[13px] line-clamp-2"
           )}
         >
           {folder.name}
         </h3>
 
         {isHero && (
-          <p className="text-[11px] text-ink-muted leading-relaxed mb-4 line-clamp-2">
+          <p className="text-[11px] text-ink-muted leading-relaxed mb-3 line-clamp-2 break-words [overflow-wrap:anywhere]">
             {folder.todos[0]?.title ?? t("暂无待办", "No todos yet")}
           </p>
         )}
@@ -84,7 +85,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
               <span
                 className={cn(
                   "data-mono font-bold",
-                  isHero ? "text-2xl" : "text-base",
+                  isHero ? "text-xl sm:text-2xl" : "text-base",
                   cd.overdue
                     ? "text-coral text-glow-coral"
                     : cd.urgent
@@ -106,7 +107,7 @@ export default function FocusCard({ folder, variant = "mini" }: FocusCardProps) 
                 {folder.progress}%
               </span>
               <span className="text-[9px] data-mono text-ink-faint">
-                {doneTodos}/{folder.todos.length} DONE
+                {todoCounts.done}/{todoCounts.total} DONE
               </span>
             </div>
           </div>
