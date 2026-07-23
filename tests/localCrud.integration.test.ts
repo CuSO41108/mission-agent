@@ -23,7 +23,16 @@ import {
   deleteMaterial,
   setFolderStatus,
   toggleTodo,
+  updateAgentConfig,
 } from "../src/core/services/mutationService";
+import {
+  createWorkflow,
+  deleteWorkflow,
+  getWorkflowRuns,
+  updateWorkflow,
+} from "../src/core/services/workflowService";
+import { dispatchWorkflowEvent, runWorkflow } from "../src/core/workflow/WorkflowEngine";
+import { runAgentOnce } from "../src/core/agent/AgentService";
 
 test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
   initDatabase({ dbPath: ":memory:" });
@@ -198,5 +207,106 @@ test("旧版接口凭据从 YAML 清理且不影响现有设置", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(persisted, "integrations"), false);
   } finally {
     if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+  }
+});
+
+test("工作流支持创建、条件触发、自动改状态、编辑、记录和删除", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  try {
+    const folder = createFolder({
+      name: "工作流目标舱",
+      category: "test",
+      priority: "high",
+      deadline: null,
+      agentEnabled: false,
+    });
+    const actionId = "action-set-status";
+    const workflow = createWorkflow({
+      name: "Agent 待办创建后暂停任务舱",
+      enabled: true,
+      trigger: { type: "todo_created", label: "待办创建", folderId: folder.id },
+      conditions: [{ id: "condition-agent", field: "assignee", op: "eq", value: "agent" }],
+      actions: [{ id: actionId, type: "set_folder_status", label: "暂停任务舱", config: { status: "paused" } }],
+      layout: [
+        { id: "node-trigger", kind: "trigger", refId: "trigger", x: 0, y: 0 },
+        { id: "node-condition", kind: "condition", refId: "condition-agent", x: 180, y: 0 },
+        { id: "node-action", kind: "action", refId: actionId, x: 360, y: 0 },
+      ],
+    });
+
+    await dispatchWorkflowEvent(
+      { type: "todo_created", folderId: folder.id, assignee: "human", text: "人工待办", timestamp: Date.now() },
+      { chainId: "test-human", depth: 0, visitedWorkflowIds: [] },
+    );
+    assert.equal(getFolderDetail(folder.id)?.status, "active");
+
+    await dispatchWorkflowEvent(
+      { type: "todo_created", folderId: folder.id, assignee: "agent", text: "Agent 待办", timestamp: Date.now() },
+      { chainId: "test-agent", depth: 0, visitedWorkflowIds: [] },
+    );
+    assert.equal(getFolderDetail(folder.id)?.status, "paused");
+    assert.equal(getWorkflowRuns(workflow.id).length, 1);
+    assert.equal(getWorkflowRuns(workflow.id)[0].status, "success");
+
+    const edited = updateWorkflow(workflow.id, {
+      name: "已编辑的状态工作流",
+      enabled: false,
+      trigger: workflow.trigger,
+      conditions: workflow.conditions,
+      actions: workflow.actions,
+      layout: workflow.layout.map((node) => ({ ...node, x: node.x + 12 })),
+    });
+    assert.equal(edited.name, "已编辑的状态工作流");
+    assert.equal(edited.enabled, false);
+    await assert.rejects(
+      () => runWorkflow(workflow.id, { type: "manual", folderId: folder.id, timestamp: Date.now() }, { chainId: "loop", depth: 1, visitedWorkflowIds: [workflow.id] }),
+      /循环执行/,
+    );
+    assert.equal(deleteWorkflow(workflow.id), true);
+    assert.equal(getWorkflowRuns(workflow.id).length, 0);
+  } finally {
+    closeDatabase();
+  }
+});
+
+test("分析型 Agent 待办不会自动生成文件或标记完成，读取权限会阻止模型请求", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const originalFetch = globalThis.fetch;
+  try {
+    const folder = createFolder({
+      name: "Agent 类型测试",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: true,
+    });
+    const withTodo = createTodo(folder.id, {
+      title: "分析现状，不生成文件",
+      dueDate: null,
+      assignee: "agent",
+      agentTaskType: "analysis",
+    });
+    updateAgentConfig(folder.id, { permissions: { read: false, write: true } });
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "分析结果" } }], model: "test" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    const denied = await runAgentOnce(folder.id, { apiKey: "test", baseUrl: "https://example.invalid", model: "test" });
+    assert.equal(denied.errorCode, "AGENT_READ_PERMISSION_REQUIRED");
+    assert.equal(fetchCalled, false);
+
+    updateAgentConfig(folder.id, { permissions: { read: true, write: true } });
+    const result = await runAgentOnce(folder.id, { apiKey: "test", baseUrl: "https://example.invalid", model: "test" });
+    assert.equal(result.ok, true);
+    assert.equal(result.action, "task_analyzed");
+    assert.equal(result.artifactPath, undefined);
+    assert.equal(getFolderDetail(folder.id)?.todos.find((todo) => todo.id === withTodo.todos[0].id)?.done, false);
+    assert.equal(getFolderDetail(folder.id)?.materials.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    closeDatabase();
   }
 });
