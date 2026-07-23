@@ -7,7 +7,7 @@
  * 每次启动时 migrate 会比对 SCHEMA_VERSION 常量
  * 若低于当前版本，则执行新增的建表语句
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const CREATE_SCHEMA_VERSION_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -186,8 +186,11 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   summary TEXT,
   error TEXT,
   error_code TEXT,
+  model TEXT,
+  retry_of_run_id TEXT,
   FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE SET NULL
+  FOREIGN KEY(todo_id) REFERENCES todos(id) ON DELETE SET NULL,
+  FOREIGN KEY(retry_of_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_runs_status_queued ON agent_runs(status, queued_at);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_folder ON agent_runs(folder_id, queued_at DESC);

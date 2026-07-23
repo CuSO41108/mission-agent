@@ -1,6 +1,6 @@
 <p align="center">
   <h1 align="center">Mission Console · 任务指挥中心</h1>
-  <p align="center">本地优先、Agent 辅助巡检的桌面任务管理工作台</p>
+  <p align="center">本地优先、支持受控并行 Agent Run 的个人任务工作台</p>
 </p>
 
 <p align="center">
@@ -16,14 +16,15 @@
   <img src="./docs/screenshots/dashboard.png" alt="Mission Console 浅色生产力工作台概览" width="1000">
 </p>
 
-Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同一处管理待办、材料、时间线与 Agent 配置。定时调度器只扫描处于活动状态且已启用 Agent 的任务舱；配置任意 OpenAI 兼容模型 API 后，可按设定间隔（默认每小时）或手动发起巡检。不同任务舱的 Agent Run 可受控并行（默认 2、可调 1–4），同一任务舱始终互斥，结果会写回时间线。业务数据保存在本地 SQLite，普通应用配置保存在本地 YAML，模型 API Key 由 Electron `safeStorage` 加密保存。界面采用冷中性灰白基底的现代生产力工作台风格，以克制的产品蓝、细描边、轻阴影和紧凑信息密度保证长时间使用的清晰度。
+Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同一处管理待办、材料、时间线与 Agent 配置。定时调度器只扫描处于活动状态且已启用 Agent 的任务舱；配置任意 OpenAI 兼容模型 API 后，可按设定间隔（默认每小时）或手动发起巡检。Agent Run 会先写入本地持久化队列，在并发额度与资源锁可用后自动执行；不同任务舱可受控并行（默认 2、可调 1–4），同一任务舱当前保持互斥。业务数据保存在本地 SQLite，普通应用配置保存在本地 YAML，模型 API Key 由 Electron `safeStorage` 加密保存。
 
 ## ✨ Features
 
 - **任务舱架构** — 每类任务一个舱，集中管理待办、材料、时间线、Agent 配置
 - **本地材料管理** — 通过系统文件选择器添加引用，可打开或移除引用，不删除磁盘原文件
 - **Agent 定时巡检与受控并行** — 默认每 60 分钟执行，支持 5–1440 分钟调整、手动触发、超时取消与运行事件推送；不同任务舱默认最多 2 个 Run 并发，可调为 1–4
-- **本地 Run 记录与资源互斥** — Agent Run 在 SQLite 中持久化；同一任务舱不会被心跳与重复执行同时处理，异常退出会保留可审计状态
+- **持久化 Run 队列与资源互斥** — Run 按 `queued → running → terminal` 流转；资源忙时持续等待并在释放后自动启动，应用重启会恢复排队项
+- **安全中断与人工重试** — 异常退出时遗留的 `running` Run 标记为 `APP_INTERRUPTED`，不会自动重放潜在副作用；可在运行控制台取消或创建有关联记录的新重试 Run
 - **类型化 Agent 待办** — 分析、生成产物、跟进提醒、材料整理、进度摘要与工作流任务分开执行；只有明确选择产物任务才写文件
 - **多种本地产物** — Markdown 为推荐默认格式，同时支持纯文本与 JSON；分析型待办不会自动生成文件或标记完成
 - **OpenAI 兼容模型** — DeepSeek 只是默认配置示例，Base URL 与模型名均可更换为其他兼容服务
@@ -109,6 +110,9 @@ flowchart LR
   Core --> SQLite[(node:sqlite)]
   Core --> Model[OpenAI 兼容模型 API]
   Main --> Scheduler[可配置心跳调度器]
+  Core --> Queue[持久化 Agent Run Worker]
+  Queue --> SQLite
+  Queue --> Model
   Main --> Workflow[工作流运行时]
   Main --> SafeStorage[系统安全存储]
   Scheduler --> Core
@@ -120,7 +124,7 @@ flowchart LR
 - **IPC 双通道**：`ipcMain.handle` 做 CRUD + `webContents.send` 做事件推送
 - **数据层**：`node:sqlite` 嵌入式 SQLite，11 张业务表 + `schema_version`，包含 Agent Run 与资源租约记录
 - **配置层**：普通应用配置存入 `userData/config.yaml`；模型 Key 与适配器敏感字段先经系统安全存储加密，渲染层只获取配置状态
-- **调度层**：按分钟间隔递归调度 + 受限并发 + 任务舱资源租约 + 请求超时；仅执行 `active + Agent enabled` 的任务舱。Agent 与 Copilot 调用同一模型时共享并发额度
+- **调度层**：心跳或手动操作先创建持久化 Run，Worker 按 FIFO 扫描并跳过资源冲突项；资源释放、Run 结束、配置变化或应用启动都会立即再次泵队列。Agent 与 Copilot 调用同一模型时共享并发额度
 - **适配器层**：本地注册、编辑、删除和凭据状态已完成；各服务商运行时待后续实现
 - **工作流层**：独立事件总线与定时轮询驱动本地节点，支持修改任务舱状态、创建待办、运行 Agent、写时间线和应用内通知
 
@@ -137,7 +141,7 @@ src/
     ├── db/        # node:sqlite + Schema + 迁移 + Repository
     ├── config/    # AppConfig + YAML 读写
     ├── services/  # 任务舱、材料、适配器等业务服务
-    ├── agent/     # OpenAI 兼容客户端 + 类型化单舱 Agent 执行器
+    ├── agent/     # 持久化 Run Worker + OpenAI 兼容客户端 + 类型化单舱 Agent 执行器
     └── workflow/  # 工作流引擎、事件总线与心跳巡检策略
 ```
 

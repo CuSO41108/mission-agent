@@ -125,6 +125,16 @@ export function migrateDatabase(): void {
       `);
     }
 
+    if (currentVersion < 7) {
+      const columns = db.prepare("PRAGMA table_info(agent_runs);").all() as Array<{ name: string }>;
+      if (!columns.some((item) => item.name === "retry_of_run_id")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN retry_of_run_id TEXT;");
+      }
+      if (!columns.some((item) => item.name === "model")) {
+        db.exec("ALTER TABLE agent_runs ADD COLUMN model TEXT;");
+      }
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",

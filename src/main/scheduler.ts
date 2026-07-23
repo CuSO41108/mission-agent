@@ -10,6 +10,7 @@ import {
 } from "../core/workflow";
 import type { AgentResult } from "../core/agent";
 import type { AgentRunOptions } from "../core/agent";
+import type { AgentRunSource } from "../core/agent";
 import type { AppConfig } from "../core/config";
 import {
   DEEPSEEK_REQUEST_TIMEOUT_MS,
@@ -260,6 +261,7 @@ export async function runFolderOnce(
   getConfig: ConfigProvider,
   win: BrowserWindow,
   folderId: string,
+  runSource: Extract<AgentRunSource, "manual" | "workflow"> = "manual",
 ): Promise<AgentResult> {
   const { runId, controller, timeout, didTimeout, updatesSchedulerState } = beginRun("manual_folder");
   const config = readHeartbeatConfig(getConfig);
@@ -277,7 +279,7 @@ export async function runFolderOnce(
       ...runtimeOptionsProvider(),
       signal: controller.signal,
       requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
-    });
+    }, runSource);
     const timedOut = didTimeout() || result.errorCode === "MODEL_TIMEOUT";
     const cancelled = controller.signal.aborted && !didTimeout();
     const outcome = timedOut

@@ -65,6 +65,7 @@ import {
   stopScheduler,
   configureAgentRuntime,
 } from "./scheduler";
+import { DEEPSEEK_REQUEST_TIMEOUT_MS } from "./schedulerPolicy";
 import {
   registerWorkflowRuntime,
   runDueScheduledWorkflows,
@@ -72,6 +73,7 @@ import {
 } from "../core/workflow";
 import { analyzeWithCopilot, draftWithCopilot } from "../core/copilot/copilotService";
 import { AgentRunRepository } from "../core/repositories/agentRunRepository";
+import { agentRunQueue } from "../core/agent";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -355,6 +357,7 @@ function updateConfig(partial: Partial<AppConfig>): AppConfig {
   // 同步运行时状态：开关变化时启动/停止固定的每小时调度器
   if (partial.agent && mainWindow) {
     startScheduler(getConfig, mainWindow);
+    agentRunQueue.notifyRuntimeChanged();
   }
   if (partial.system?.trayIcon !== undefined) {
     if (merged.system.trayIcon) createTray();
@@ -566,6 +569,21 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle("agent:schedulerStatus", () => getSchedulerStatus());
+  ipcMain.handle("agent:runs", (_e, folderId?: string | null, limit = 50) =>
+    folderId
+      ? AgentRunRepository.listRecentByFolder(folderId, Math.min(Math.max(limit, 1), 100))
+      : AgentRunRepository.listRecent(Math.min(Math.max(limit, 1), 100)),
+  );
+  ipcMain.handle("agent:cancelRun", (_e, runId: string) => ({
+    ok: agentRunQueue.cancel(runId),
+  }));
+  ipcMain.handle("agent:retryRun", (_e, runId: string) => {
+    try {
+      return { ok: true as const, run: agentRunQueue.retry(runId).run };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
   // 兼容旧 settings:get（让现有 store 不破，后续逐步迁移到 config:get）
   ipcMain.handle("settings:get", (_event: unknown, key: string) => {
@@ -640,10 +658,45 @@ app.whenReady().then(() => {
       timestamp: Date.now(),
     }),
   }));
+  agentRunQueue.configure(() => ({
+    config: getConfig().deepseek,
+    options: {
+      modelConcurrency: getConfig().agent.maxConcurrentRuns,
+      modelCapacityKey: `${getConfig().deepseek.baseUrl}|${getConfig().deepseek.model}`,
+      requestTimeoutMs: DEEPSEEK_REQUEST_TIMEOUT_MS,
+      artifactRoot: getConfig().storage.vaultDir
+        ? path.join(getConfig().storage.vaultDir, "agent-artifacts")
+        : path.join(app.getPath("userData"), "artifacts"),
+      notify: ({ title, body, folderId }) => {
+        if (!mainWindow?.isDestroyed()) {
+          mainWindow.webContents.send("agent:event", {
+            type: "agent_notification",
+            title,
+            body,
+            folderId,
+            timestamp: Date.now(),
+          });
+        }
+      },
+      runWorkflow: (workflowId, folderId) => runWorkflow(workflowId, {
+        type: "manual",
+        folderId,
+        timestamp: Date.now(),
+      }),
+    },
+  }), (run) => {
+    if (!mainWindow?.isDestroyed()) {
+      mainWindow.webContents.send("agent:event", {
+        type: "agent_run_changed",
+        run,
+        timestamp: Date.now(),
+      });
+    }
+  });
   disposeWorkflowRuntime = registerWorkflowRuntime({
     runAgent: async (folderId) => {
       if (!mainWindow) return { ok: false, error: "主窗口尚未初始化" };
-      const result = await runFolderOnce(getConfig, mainWindow, folderId);
+      const result = await runFolderOnce(getConfig, mainWindow, folderId, "workflow");
       return { ok: result.ok, summary: result.summary, error: result.error };
     },
     notify: (payload) => {
@@ -708,6 +761,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   globalShortcut.unregisterAll();
   stopScheduler();
+  agentRunQueue.stop();
   disposeWorkflowRuntime?.();
   disposeWorkflowRuntime = null;
   if (workflowTimer) clearInterval(workflowTimer);
