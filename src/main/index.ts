@@ -71,6 +71,7 @@ import {
   runWorkflow,
 } from "../core/workflow";
 import { analyzeWithCopilot, draftWithCopilot } from "../core/copilot/copilotService";
+import { AgentRunRepository } from "../core/repositories/agentRunRepository";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -430,7 +431,11 @@ function registerIpc(): void {
   // 上下文由主进程从本地数据库构建，渲染进程无法传入文件路径或凭据。
   ipcMain.handle("copilot:analyze", async (_e, prompt: string) => {
     try {
-      const result = await analyzeWithCopilot(getConfig().deepseek, getAllFoldersWithDetails(), prompt);
+      const config = getConfig();
+      const result = await analyzeWithCopilot(config.deepseek, getAllFoldersWithDetails(), prompt, {
+        modelConcurrency: config.agent.maxConcurrentRuns,
+        modelCapacityKey: `${config.deepseek.baseUrl}|${config.deepseek.model}`,
+      });
       return { ok: true as const, result };
     } catch (error) {
       return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
@@ -438,7 +443,11 @@ function registerIpc(): void {
   });
   ipcMain.handle("copilot:draft", async (_e, prompt: string) => {
     try {
-      const result = await draftWithCopilot(getConfig().deepseek, getAllFoldersWithDetails(), prompt);
+      const config = getConfig();
+      const result = await draftWithCopilot(config.deepseek, getAllFoldersWithDetails(), prompt, {
+        modelConcurrency: config.agent.maxConcurrentRuns,
+        modelCapacityKey: `${config.deepseek.baseUrl}|${config.deepseek.model}`,
+      });
       return { ok: true as const, result };
     } catch (error) {
       return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
@@ -584,6 +593,10 @@ function initAppDatabase(): void {
   try {
     initDatabase({ dbPath });
     migrateDatabase();
+    const interruptedRuns = AgentRunRepository.recoverInterruptedRuns();
+    if (interruptedRuns > 0) {
+      console.warn(`[agent-run] 已将 ${interruptedRuns} 个异常中断的 Run 标记为取消`);
+    }
     if (isFirstLaunch) {
       seedDatabase();
       console.log(`[db] 首次启动，种子数据已写入 ${dbPath}`);
@@ -605,6 +618,8 @@ app.whenReady().then(() => {
   if (getConfig().system.trayIcon) createTray();
   registerIpc();
   configureAgentRuntime(() => ({
+    modelConcurrency: getConfig().agent.maxConcurrentRuns,
+    modelCapacityKey: `${getConfig().deepseek.baseUrl}|${getConfig().deepseek.model}`,
     artifactRoot: getConfig().storage.vaultDir
       ? path.join(getConfig().storage.vaultDir, "agent-artifacts")
       : path.join(app.getPath("userData"), "artifacts"),

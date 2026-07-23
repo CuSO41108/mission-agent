@@ -3,6 +3,7 @@
 
 import path from "node:path";
 import { chat, type ChatMessage } from "../config/deepseekClient";
+import { withModelCapacity } from "./modelCapacity";
 import type { DeepSeekConfig } from "../config/defaultConfig";
 import { AgentConfigRepository } from "../repositories/agentConfigRepository";
 import { FolderRepository } from "../repositories/folderRepository";
@@ -42,6 +43,9 @@ export interface AgentRunOptions {
   artifactRoot?: string;
   notify?: (payload: { title: string; body: string; folderId: string }) => void;
   runWorkflow?: (workflowId: string, folderId: string) => Promise<WorkflowRun>;
+  /** Agent Run 与 Copilot 共享的模型并发额度。 */
+  modelConcurrency?: number;
+  modelCapacityKey?: string;
 }
 
 function flattenTodos(todos: Todo[]): Todo[] {
@@ -290,11 +294,16 @@ export async function runAgentOnce(
   }
 
   try {
-    const result = await chat(config, messages, {
-      signal: options.signal,
-      timeoutMs: options.requestTimeoutMs,
-      maxTokens: writesArtifact ? 4096 : 1024,
-    });
+    const result = await withModelCapacity(
+      options.modelCapacityKey ?? `${config.baseUrl}|${config.model}`,
+      options.modelConcurrency ?? 1,
+      () => chat(config, messages, {
+        signal: options.signal,
+        timeoutMs: options.requestTimeoutMs,
+        maxTokens: writesArtifact ? 4096 : 1024,
+      }),
+      options.signal,
+    );
     let artifactPath: string | undefined;
     let stagedArtifact: StagedArtifact | undefined;
     let artifactFinalized = false;

@@ -25,6 +25,8 @@ export interface AgentConfig {
   heartbeatIntervalMin: number;
   /** 全局开关，关闭后所有心跳停止 */
   enabled: boolean;
+  /** 同时允许的本地 Agent Run 数；模型调用还会受同一上限保护。 */
+  maxConcurrentRuns: number;
 }
 
 /**
@@ -61,12 +63,23 @@ export interface AppConfig {
 export const DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 60;
 export const MIN_HEARTBEAT_INTERVAL_MINUTES = 5;
 export const MAX_HEARTBEAT_INTERVAL_MINUTES = 24 * 60;
+export const DEFAULT_MAX_CONCURRENT_AGENT_RUNS = 2;
+export const MIN_MAX_CONCURRENT_AGENT_RUNS = 1;
+export const MAX_MAX_CONCURRENT_AGENT_RUNS = 4;
 
 export function normalizeHeartbeatIntervalMin(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_HEARTBEAT_INTERVAL_MINUTES;
   return Math.max(
     MIN_HEARTBEAT_INTERVAL_MINUTES,
     Math.min(MAX_HEARTBEAT_INTERVAL_MINUTES, Math.round(value)),
+  );
+}
+
+export function normalizeMaxConcurrentAgentRuns(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_CONCURRENT_AGENT_RUNS;
+  return Math.max(
+    MIN_MAX_CONCURRENT_AGENT_RUNS,
+    Math.min(MAX_MAX_CONCURRENT_AGENT_RUNS, Math.round(value)),
   );
 }
 
@@ -84,6 +97,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   agent: {
     heartbeatIntervalMin: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
     enabled: true,
+    maxConcurrentRuns: DEFAULT_MAX_CONCURRENT_AGENT_RUNS,
   },
   system: {
     autoLaunch: false,
@@ -114,6 +128,9 @@ export function mergeConfig(base: AppConfig, partial: Partial<AppConfig>): AppCo
       ...partial.agent,
       heartbeatIntervalMin: normalizeHeartbeatIntervalMin(
         partial.agent?.heartbeatIntervalMin ?? base.agent.heartbeatIntervalMin,
+      ),
+      maxConcurrentRuns: normalizeMaxConcurrentAgentRuns(
+        partial.agent?.maxConcurrentRuns ?? base.agent.maxConcurrentRuns,
       ),
     },
     system: { ...base.system, ...partial.system },

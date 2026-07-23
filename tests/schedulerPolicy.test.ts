@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+  DEFAULT_MAX_CONCURRENT_AGENT_RUNS,
   DEFAULT_CONFIG,
   mergeConfig,
   type AppConfig,
@@ -21,7 +22,11 @@ test("心跳默认 60 分钟，同时保留用户可配置间隔", () => {
   assert.equal(DEFAULT_CONFIG.agent.heartbeatIntervalMin, 60);
   assert.equal(
     mergeConfig(DEFAULT_CONFIG, {
-      agent: { enabled: true, heartbeatIntervalMin: 120 },
+      agent: {
+        enabled: true,
+        heartbeatIntervalMin: 120,
+        maxConcurrentRuns: DEFAULT_MAX_CONCURRENT_AGENT_RUNS,
+      },
     }).agent.heartbeatIntervalMin,
     120,
   );

@@ -30,7 +30,7 @@ let lastRunFinishedAt: number | null = null;
 let lastError: string | null = null;
 
 type ConfigProvider = () => AppConfig;
-type RuntimeOptionsProvider = () => Pick<AgentRunOptions, "artifactRoot" | "notify" | "runWorkflow">;
+type RuntimeOptionsProvider = () => Pick<AgentRunOptions, "artifactRoot" | "notify" | "runWorkflow" | "modelConcurrency" | "modelCapacityKey">;
 let runtimeOptionsProvider: RuntimeOptionsProvider = () => ({});
 
 export function configureAgentRuntime(provider: RuntimeOptionsProvider): void {
@@ -56,8 +56,12 @@ function beginRun(source: "scheduled" | "manual_all" | "manual_folder"): {
   controller: AbortController;
   timeout: ReturnType<typeof setTimeout>;
   didTimeout: () => boolean;
+  updatesSchedulerState: boolean;
 } {
-  if (isRunning) throw new SchedulerBusyError();
+  // 手动单舱 Run 与心跳批次可并行；真正的数据冲突由 core 中持久化的
+  // folder 资源租约处理。心跳批次之间仍保持全局防重入。
+  const updatesSchedulerState = source !== "manual_folder";
+  if (updatesSchedulerState && isRunning) throw new SchedulerBusyError();
 
   const runId = `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const controller = new AbortController();
@@ -67,21 +71,25 @@ function beginRun(source: "scheduled" | "manual_all" | "manual_folder"): {
     controller.abort(new Error("心跳整轮执行超时"));
   }, HEARTBEAT_RUN_TIMEOUT_MS);
 
-  isRunning = true;
-  activeRunController = controller;
-  activeRunId = runId;
-  activeRunStartedAt = Date.now();
-  runState = "running";
-  lastError = null;
-  return { runId, controller, timeout, didTimeout: () => timedOut };
+  if (updatesSchedulerState) {
+    isRunning = true;
+    activeRunController = controller;
+    activeRunId = runId;
+    activeRunStartedAt = Date.now();
+    runState = "running";
+    lastError = null;
+  }
+  return { runId, controller, timeout, didTimeout: () => timedOut, updatesSchedulerState };
 }
 
 function finishRun(
   timeout: ReturnType<typeof setTimeout>,
   outcome: Exclude<SchedulerRunState, "idle" | "running">,
   error?: string,
+  updatesSchedulerState = true,
 ): void {
   clearTimeout(timeout);
+  if (!updatesSchedulerState) return;
   runState = outcome;
   lastError = error ?? null;
   lastRunFinishedAt = Date.now();
@@ -253,7 +261,7 @@ export async function runFolderOnce(
   win: BrowserWindow,
   folderId: string,
 ): Promise<AgentResult> {
-  const { runId, controller, timeout, didTimeout } = beginRun("manual_folder");
+  const { runId, controller, timeout, didTimeout, updatesSchedulerState } = beginRun("manual_folder");
   const config = readHeartbeatConfig(getConfig);
   if (!win.isDestroyed()) {
     win.webContents.send("agent:event", {
@@ -289,11 +297,11 @@ export async function runFolderOnce(
         timestamp: Date.now(),
       });
     }
-    finishRun(timeout, outcome, result.error);
+    finishRun(timeout, outcome, result.error, updatesSchedulerState);
     return result;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    finishRun(timeout, controller.signal.aborted ? "cancelled" : "failed", errorMsg);
+    finishRun(timeout, controller.signal.aborted ? "cancelled" : "failed", errorMsg, updatesSchedulerState);
     throw err;
   }
 }
