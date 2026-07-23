@@ -81,13 +81,22 @@ npm ci
 npm run dev
 ```
 
-构建并从本机命令行启动：
+从源码构建并安装到当前 Node.js 的全局命令目录：
 
 ```bash
 npm run build
 npm install -g .
 mission-console
 ```
+
+普通用户不需要克隆仓库。Node.js 22.13+ 安装后，使用 GitHub Release 的最新构建：
+
+```powershell
+npm install -g https://github.com/CuSO41108/mission-agent/releases/latest/download/mission-console.tgz
+mission-console
+```
+
+日常使用只需执行 `mission-console`。可用 `mission-console --check-update` 查看版本，或以 `mission-console --update` 下载、校验 SHA-256、安装并重新启动最新版；应用内的 **设置 → 应用更新** 提供相同功能。全局命令由当前 Node.js 的 npm 管理；如使用 nvm，请在安装应用的同一个 Node 版本下运行命令。
 
 关闭主窗口后应用会留在托盘。按 **Ctrl+Alt+Space**（macOS：Option+Space）可再次唤起，彻底退出请使用托盘菜单。
 

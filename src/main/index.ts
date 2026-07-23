@@ -17,6 +17,8 @@ import {
 } from "electron";
 import path from "node:path";
 import fs from "node:fs";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
@@ -76,10 +78,12 @@ import { AgentRunRepository } from "../core/repositories/agentRunRepository";
 import { agentRunQueue } from "../core/agent";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 
 const PRODUCT_NAME = "Mission Console";
 const APP_ID = "com.mission-console.app";
 const DEFAULT_SHORTCUT = process.platform === "darwin" ? "Option+Space" : "Ctrl+Alt+Space";
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -184,6 +188,7 @@ function createWindow(): void {
 
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
+    void checkForAutomaticAppUpdate();
   });
 
   // 点击关闭按钮时隐藏而非退出（托盘常驻）
@@ -370,12 +375,80 @@ function updateConfig(partial: Partial<AppConfig>): AppConfig {
   return publicConfig(merged);
 }
 
+type UpdateCheck = {
+  currentVersion: string;
+  updateAvailable: boolean;
+  manifest: { version: string; notes?: { features?: string[]; fixes?: string[] } } | null;
+  error: string | null;
+};
+
+function updateClient(): {
+  checkForUpdate: (options: { currentVersion: string }) => Promise<UpdateCheck>;
+} {
+  return require(path.join(app.getAppPath(), "bin", "update-client.cjs"));
+}
+
+async function checkForAppUpdate(): Promise<UpdateCheck> {
+  return updateClient().checkForUpdate({ currentVersion: app.getVersion() });
+}
+
+function startAppUpdate(): { ok: true } | { ok: false; error: string } {
+  const nodePath = process.env.MISSION_CONSOLE_NODE_PATH;
+  if (!nodePath) return { ok: false, error: "自动更新仅适用于通过 mission-console 全局安装的正式版。" };
+  const updater = path.join(app.getAppPath(), "bin", "apply-update.cjs");
+  const child = spawn(nodePath, [updater, "--wait-pid", String(process.pid)], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    env: { ...process.env, MISSION_CONSOLE_NODE_PATH: nodePath },
+  });
+  child.unref();
+  setTimeout(() => {
+    isQuitting = true;
+    app.quit();
+  }, 250);
+  return { ok: true };
+}
+
+function updateCheckStatePath(): string {
+  return path.join(app.getPath("userData"), "update-check.json");
+}
+
+function wasRecentlyCheckedForUpdates(): boolean {
+  try {
+    const value = JSON.parse(fs.readFileSync(updateCheckStatePath(), "utf8")) as { checkedAt?: unknown };
+    return typeof value.checkedAt === "number" && Date.now() - value.checkedAt < UPDATE_CHECK_INTERVAL_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function checkForAutomaticAppUpdate(): Promise<void> {
+  if (process.env.MISSION_CONSOLE_RELEASE_BUILD !== "1" || wasRecentlyCheckedForUpdates()) return;
+  const result = await checkForAppUpdate();
+  fs.writeFileSync(updateCheckStatePath(), JSON.stringify({ checkedAt: Date.now() }), "utf8");
+  if (result.error || !result.updateAvailable || !result.manifest || !mainWindow || mainWindow.isDestroyed()) return;
+  const notes = [...(result.manifest.notes?.features ?? []), ...(result.manifest.notes?.fixes ?? [])];
+  const choice = await dialog.showMessageBox(mainWindow, {
+    type: "info",
+    title: `${PRODUCT_NAME} 有新版本`,
+    message: `发现 v${result.manifest.version}，是否立即安装？`,
+    detail: notes.length ? notes.map((note) => `• ${note}`).join("\n") : "更新会下载经 SHA-256 校验的 GitHub Release，并在重启后生效。",
+    buttons: ["立即更新", "稍后"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (choice.response === 0) startAppUpdate();
+}
+
 // ============ IPC 注册 ============
 // IPC handler 路由：渲染进程 invoke 的 channel → 调 core/Service
 // Phase 3：读操作；Phase 4：加 config 读写 + 模型连接测试
 function registerIpc(): void {
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:platform", () => process.platform);
+  ipcMain.handle("app:update:check", () => checkForAppUpdate());
+  ipcMain.handle("app:update:install", () => startAppUpdate());
 
   // 任务舱
   ipcMain.handle("folder:list", () => getAllFoldersWithDetails());

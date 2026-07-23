@@ -30,6 +30,15 @@ const api = {
   // ============ 应用信息 ============
   getVersion: () => ipcRenderer.invoke("app:version") as Promise<string>,
   getPlatform: () => ipcRenderer.invoke("app:platform") as Promise<string>,
+  checkForAppUpdate: () => ipcRenderer.invoke("app:update:check") as Promise<{
+    currentVersion: string;
+    updateAvailable: boolean;
+    manifest: { version: string; notes?: { features?: string[]; fixes?: string[] } } | null;
+    error: string | null;
+  }>,
+  installAppUpdate: () => ipcRenderer.invoke("app:update:install") as Promise<
+    { ok: true } | { ok: false; error: string }
+  >,
 
   // ============ 设置（旧 API，保留兼容） ============
   getSetting: (key: string) => ipcRenderer.invoke("settings:get", key) as Promise<unknown>,
