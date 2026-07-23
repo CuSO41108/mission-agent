@@ -14,7 +14,7 @@ const MAX_PROMPT_LENGTH = 2_000;
 const MAX_CONTEXT_LENGTH = 14_000;
 
 function truncate(value: string, limit: number): string {
-  const normalized = value.replace(/\u0000/g, "").trim();
+  const normalized = value.split(String.fromCharCode(0)).join("").trim();
   return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}…`;
 }
 

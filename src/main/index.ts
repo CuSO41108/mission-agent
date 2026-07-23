@@ -18,7 +18,7 @@ import {
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { CopilotModelResult, TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput } from "../renderer/types";
+import type { TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
 import { seedDatabase } from "../core/db/seed";
