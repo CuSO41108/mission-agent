@@ -296,6 +296,30 @@ export interface CopilotMeta {
   durationMs: number;
 }
 
+export type CopilotMode = "local" | "analysis" | "draft";
+
+export interface CopilotFolderDraft {
+  kind: "folder";
+  summary: string;
+  input: CreateFolderInput;
+  todos: Array<Pick<CreateTodoInput, "title" | "assignee">>;
+}
+
+export interface CopilotWorkflowDraft {
+  kind: "workflow";
+  summary: string;
+  input: UpsertWorkflowInput;
+}
+
+export type CopilotDraft = CopilotFolderDraft | CopilotWorkflowDraft;
+
+export interface CopilotModelResult {
+  content: string;
+  model: string;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  draft?: CopilotDraft;
+}
+
 export interface CopilotMessage {
   id: string;
   role: "user" | "agent";
@@ -307,4 +331,7 @@ export interface CopilotMessage {
   actions?: CopilotAction[];
   thinking?: CopilotThinking;
   meta?: CopilotMeta;
+  draft?: CopilotDraft;
+  draftStatus?: "pending" | "applied" | "cancelled" | "failed";
+  draftError?: string;
 }
