@@ -92,6 +92,10 @@ const api = {
     ipcRenderer.invoke("material:open", folderId, materialId) as Promise<
       { ok: true } | { ok: false; error: string }
     >,
+  revealMaterial: (folderId: string, materialId: string) =>
+    ipcRenderer.invoke("material:reveal", folderId, materialId) as Promise<
+      { ok: true } | { ok: false; error: string }
+    >,
   // Agent 开关
   toggleAgent: (folderId: string, enabled: boolean) =>
     ipcRenderer.invoke("agent:toggle", folderId, enabled) as Promise<TaskFolder>,
