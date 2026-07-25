@@ -6,8 +6,12 @@ import type { DeepSeekConfig } from "./defaultConfig";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ChatContentPart[];
 }
+
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "auto" | "low" | "high" } };
 
 export interface ChatResult {
   content: string;
@@ -23,6 +27,8 @@ export interface ChatOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxTokens?: number;
+  temperature?: number;
+  responseFormat?: "json_object";
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
@@ -55,7 +61,8 @@ export async function chat(
   messages: ChatMessage[],
   options: ChatOptions = {},
 ): Promise<ChatResult> {
-  const url = `${config.baseUrl.replace(/\/$/, "")}/v1/chat/completions`;
+  const baseUrl = config.baseUrl.replace(/\/$/, "");
+  const url = `${baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`}/chat/completions`;
 
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -84,6 +91,10 @@ export async function chat(
         messages,
         stream: false,
         max_tokens: options.maxTokens ?? 1024,
+        temperature: options.temperature,
+        ...(options.responseFormat
+          ? { response_format: { type: options.responseFormat } }
+          : {}),
       }),
       signal: controller.signal,
     });

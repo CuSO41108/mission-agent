@@ -17,6 +17,7 @@ import {
   Moon,
   Sun,
   Download,
+  Plus,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,8 @@ import { usePreferences } from "@/i18n";
 import { useMissionStore } from "@/store/useMissionStore";
 import type {
   AppConfig,
+  ModelCapability,
+  ModelProfile,
 } from "@core/config";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -38,6 +41,9 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
+  const [profileDrafts, setProfileDrafts] = useState<ModelProfile[]>([]);
+  const [profileKeys, setProfileKeys] = useState<Record<string, string>>({});
+  const [profileTest, setProfileTest] = useState<Record<string, { status: TestStatus; message: string }>>({});
   // 用于模型连接测试时拿当前表单里的临时值（用户可能还没保存）
   const [draftApiKey, setDraftApiKey] = useState("");
   const [draftModel, setDraftModel] = useState("deepseek-chat");
@@ -55,6 +61,7 @@ export default function Settings() {
       setConfigState(cfg);
       setDraftApiKey("");
       setDraftModel(cfg.deepseek.model);
+      setProfileDrafts(cfg.models.profiles.filter((profile) => profile.id !== "deepseek-default"));
       setDraftHeartbeatInterval(cfg.agent.heartbeatIntervalMin);
       setDraftMaxConcurrentRuns(cfg.agent.maxConcurrentRuns);
       setDraftShortcut(cfg.system.globalShortcut);
@@ -123,6 +130,47 @@ export default function Settings() {
       },
     });
     if (merged) setDraftMaxConcurrentRuns(merged.agent.maxConcurrentRuns);
+  }
+
+  function patchProfile(profileId: string, patch: Partial<ModelProfile>) {
+    setProfileDrafts((profiles) => profiles.map((profile) => profile.id === profileId ? { ...profile, ...patch } : profile));
+  }
+
+  function toggleCapability(profile: ModelProfile, capability: ModelCapability) {
+    const capabilities = profile.capabilities.includes(capability)
+      ? profile.capabilities.filter((item) => item !== capability)
+      : [...profile.capabilities, capability];
+    patchProfile(profile.id, { capabilities });
+  }
+
+  async function saveModelProfiles() {
+    if (!config) return null;
+    const profiles = [
+      ...config.models.profiles.filter((profile) => profile.id === "deepseek-default"),
+      ...profileDrafts.map((profile) => ({ ...profile, apiKey: profileKeys[profile.id] ?? "" })),
+    ];
+    const merged = await savePartial({ models: { ...config.models, profiles } });
+    if (merged) {
+      setProfileDrafts(merged.models.profiles.filter((profile) => profile.id !== "deepseek-default"));
+      setProfileKeys({});
+    }
+    return merged;
+  }
+
+  async function testModelProfile(profileId: string) {
+    setProfileTest((current) => ({ ...current, [profileId]: { status: "testing", message: "" } }));
+    const saved = await saveModelProfiles();
+    if (!saved) {
+      setProfileTest((current) => ({ ...current, [profileId]: { status: "error", message: t("模型配置保存失败", "Could not save model profile") } }));
+      return;
+    }
+    const result = await window.missionConsole.testModelProfile(profileId);
+    setProfileTest((current) => ({
+      ...current,
+      [profileId]: result.ok
+        ? { status: "success", message: `${t("连接成功", "Connected")} · ${result.model}` }
+        : { status: "error", message: result.error },
+    }));
   }
 
   // 测试 OpenAI 兼容模型连接
@@ -338,6 +386,86 @@ export default function Settings() {
               {testMessage}
             </div>
           )}
+
+          <div className="pt-4 mt-4 border-t border-white/5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[12px] font-medium text-ink">{t("工作流模型配置", "Workflow model profiles")}</p>
+                <p className="text-[10px] text-ink-faint mt-1">{t("每个 Agent 节点引用一个命名配置；密钥只保存在系统安全存储。", "Each Agent node references a named profile; keys stay in secure storage.")}</p>
+              </div>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  const id = `model-${Date.now().toString(36)}`;
+                  setProfileDrafts((profiles) => [...profiles, {
+                    id,
+                    name: "Qwen-VL 图片识别",
+                    provider: "dashscope",
+                    apiKey: "",
+                    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    model: "qwen-vl-max",
+                    capabilities: ["text", "image", "structured_output"],
+                    apiKeyConfigured: false,
+                  }]);
+                }}
+              >
+                <Plus className="w-3 h-3" />{t("添加模型", "Add model")}
+              </button>
+            </div>
+
+            {profileDrafts.map((profile) => {
+              const testing = profileTest[profile.id];
+              return (
+                <div key={profile.id} className="border border-white/8 bg-obsidian-850/50 p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label={t("配置名称", "Profile name")}>
+                      <input className="input" value={profile.name} onChange={(event) => patchProfile(profile.id, { name: event.target.value })} />
+                    </Field>
+                    <Field label={t("服务商", "Provider")}>
+                      <select className="input" value={profile.provider} onChange={(event) => patchProfile(profile.id, { provider: event.target.value as ModelProfile["provider"] })}>
+                        <option value="dashscope">通义千问 / DashScope</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="openai_compatible">OpenAI Compatible</option>
+                      </select>
+                    </Field>
+                    <Field label={t("模型", "Model")}>
+                      <input className="input" value={profile.model} onChange={(event) => patchProfile(profile.id, { model: event.target.value })} />
+                    </Field>
+                    <Field label="Base URL">
+                      <input className="input" value={profile.baseUrl} onChange={(event) => patchProfile(profile.id, { baseUrl: event.target.value })} />
+                    </Field>
+                  </div>
+                  <Field label="API Key">
+                    <input
+                      type="password"
+                      className="input"
+                      value={profileKeys[profile.id] ?? ""}
+                      onChange={(event) => setProfileKeys((keys) => ({ ...keys, [profile.id]: event.target.value }))}
+                      placeholder={profile.apiKeyConfigured ? t("已安全保存；留空表示不更换", "Saved securely; leave blank to keep it") : "sk-xxxxxxxxxxxx"}
+                    />
+                  </Field>
+                  <Field label={t("模型能力", "Capabilities")}>
+                    <div className="flex flex-wrap gap-2">
+                      {(["text", "image", "structured_output", "reasoning"] as ModelCapability[]).map((capability) => (
+                        <label key={capability} className="flex items-center gap-1.5 text-[10px] text-ink-muted border border-white/8 px-2 py-1">
+                          <input type="checkbox" checked={profile.capabilities.includes(capability)} onChange={() => toggleCapability(profile, capability)} />
+                          {capability}
+                        </label>
+                      ))}
+                    </div>
+                  </Field>
+                  <div className="flex items-center gap-2">
+                    <button className="btn-ghost" onClick={() => void testModelProfile(profile.id)} disabled={testing?.status === "testing"}>
+                      {testing?.status === "testing" && <Loader2 className="w-3 h-3 animate-spin" />}{t("保存并测试", "Save & test")}
+                    </button>
+                    {testing?.message && <span className={cn("text-[10px]", testing.status === "success" ? "text-jade" : "text-rose-300")}>{testing.message}</span>}
+                  </div>
+                </div>
+              );
+            })}
+            {profileDrafts.length > 0 && <button className="btn-phosphor" onClick={() => void saveModelProfiles()}>{t("保存工作流模型", "Save workflow models")}</button>}
+          </div>
         </Section>
 
         {/* 2. 仓库目录 */}
