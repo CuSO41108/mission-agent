@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Workflow as WorkflowIcon,
   Plus,
@@ -25,7 +26,9 @@ import type {
   WorkflowNodeLayout,
   WorkflowRule,
   WorkflowRun,
+  WorkflowStepRun,
 } from "@/types";
+import type { ModelProfile } from "@core/config";
 
 const triggerLabels = {
   manual: "手动执行",
@@ -39,10 +42,34 @@ const triggerLabels = {
 const actionLabels = {
   create_todo: "创建待办",
   set_folder_status: "修改任务舱状态",
+  agent: "运行可配置 Agent",
   run_agent: "运行 Agent",
   write_timeline: "写入时间线",
   notify: "发送应用内通知",
+  save_artifact: "保存产物",
 } as const;
+
+function actionConfig(type: WorkflowAction["type"], profiles: ModelProfile[]): WorkflowAction["config"] {
+  if (type === "agent") {
+    return {
+      agent: {
+        modelProfileId: profiles[0]?.id ?? null,
+        role: "你是一个严谨的任务处理 Agent。",
+        prompt: "根据输入 JSON 完成任务，并严格遵守输出格式。",
+        inputSource: "previous",
+        outputFormat: "json",
+        outputSchema: null,
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        timeoutMs: 60_000,
+        retryCount: 1,
+      },
+    };
+  }
+  if (type === "save_artifact") return { artifactName: "工作流产物", artifactFormat: "markdown" };
+  if (type === "write_timeline") return { message: "工作流已执行" };
+  return {};
+}
 
 function id(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -83,6 +110,8 @@ export default function WorkflowPage() {
   const updateWorkflow = useMissionStore((state) => state.updateWorkflow);
   const deleteWorkflow = useMissionStore((state) => state.deleteWorkflow);
   const runWorkflow = useMissionStore((state) => state.runWorkflow);
+  const requestCopilotMode = useMissionStore((state) => state.requestCopilotMode);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [editingId, setEditingId] = useState<string | null | "new">(null);
   const [draft, setDraft] = useState<UpsertWorkflowInput>(emptyDraft);
   const [selectedNodeId, setSelectedNodeId] = useState("node-trigger");
@@ -90,6 +119,11 @@ export default function WorkflowPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
+
+  useEffect(() => {
+    void window.missionConsole.getConfig().then((config) => setModelProfiles(config.models.profiles));
+  }, []);
 
   const enabledCount = workflows.filter((workflow) => workflow.enabled).length;
   const totalRuns = workflows.reduce((sum, workflow) => sum + workflow.runs, 0);
@@ -105,6 +139,15 @@ export default function WorkflowPage() {
       void window.missionConsole.getWorkflowRuns(rule.id).then(setRuns);
     }
   };
+
+  useEffect(() => {
+    const editId = searchParams.get("edit");
+    if (!editId) return;
+    const workflow = workflows.find((item) => item.id === editId);
+    if (!workflow) return;
+    openEditor(workflow);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, workflows]);
 
   const save = async () => {
     if (busy) return;
@@ -154,6 +197,21 @@ export default function WorkflowPage() {
     }
   };
 
+  const resumeRun = async (runId: string) => {
+    if (busy || !editingId || editingId === "new") return;
+    setBusy(`resume:${runId}`);
+    setError("");
+    try {
+      const result = await window.missionConsole.resumeWorkflow(runId);
+      setMessage(result.status === "success" ? `恢复执行成功：${result.message}` : `恢复执行失败：${result.message}`);
+      setRuns(await window.missionConsole.getWorkflowRuns(editingId));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="p-5 space-y-5 max-w-[1500px] mx-auto">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -166,9 +224,14 @@ export default function WorkflowPage() {
             {t(`${enabledCount} 条规则运行中 · 累计真实执行 ${totalRuns} 次`, `${enabledCount} enabled · ${totalRuns} recorded runs`)}
           </p>
         </div>
-        <button className="btn-phosphor" onClick={() => openEditor()}>
-          <Plus className="w-3 h-3" /> {t("新建规则", "New rule")}
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="btn-ghost" onClick={() => requestCopilotMode("draft")}>
+            {t("让 Copilot 创建", "Create with Copilot")}
+          </button>
+          <button className="btn-phosphor" onClick={() => openEditor()}>
+            <Plus className="w-3 h-3" /> {t("手动创建", "Create manually")}
+          </button>
+        </div>
       </div>
 
       {(error || message) && (
@@ -185,7 +248,10 @@ export default function WorkflowPage() {
           selectedNodeId={selectedNodeId}
           setSelectedNodeId={setSelectedNodeId}
           runs={runs}
+          modelProfiles={modelProfiles}
           saving={busy === "save"}
+          resumingRunId={busy?.startsWith("resume:") ? busy.slice("resume:".length) : null}
+          onResumeRun={(runId) => void resumeRun(runId)}
           onSave={() => void save()}
           onClose={() => setEditingId(null)}
         />
@@ -253,7 +319,10 @@ function WorkflowEditor({
   selectedNodeId,
   setSelectedNodeId,
   runs,
+  modelProfiles,
   saving,
+  resumingRunId,
+  onResumeRun,
   onSave,
   onClose,
 }: {
@@ -263,12 +332,17 @@ function WorkflowEditor({
   selectedNodeId: string;
   setSelectedNodeId: (id: string) => void;
   runs: WorkflowRun[];
+  modelProfiles: ModelProfile[];
   saving: boolean;
+  resumingRunId: string | null;
+  onResumeRun: (runId: string) => void;
   onSave: () => void;
   onClose: () => void;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<{ nodeId: string; offsetX: number; offsetY: number } | null>(null);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [runSteps, setRunSteps] = useState<WorkflowStepRun[]>([]);
   const selectedLayout = draft.layout.find((node) => node.id === selectedNodeId) ?? null;
   const selectedCondition = selectedLayout?.kind === "condition" ? draft.conditions.find((item) => item.id === selectedLayout.refId) : null;
   const selectedAction = selectedLayout?.kind === "action" ? draft.actions.find((item) => item.id === selectedLayout.refId) : null;
@@ -288,8 +362,8 @@ function WorkflowEditor({
     setSelectedNodeId(`node-${condition.id}`);
   };
 
-  const addAction = () => {
-    const action: WorkflowAction = { id: id("action"), type: "write_timeline", label: actionLabels.write_timeline, config: { message: "工作流已执行" } };
+  const addAction = (type: WorkflowAction["type"] = "write_timeline") => {
+    const action: WorkflowAction = { id: id("action"), type, label: actionLabels[type], config: actionConfig(type, modelProfiles) };
     setDraft((current) => ({
       ...current,
       actions: [...current.actions, action],
@@ -332,12 +406,14 @@ function WorkflowEditor({
           <p className="text-[10px] data-mono text-ink-faint uppercase">本地节点</p>
           <div className="p-2 border border-amber-500/30 text-[11px] text-amber-400 flex items-center gap-2"><Zap className="w-3 h-3" />单一触发器</div>
           <button onClick={addCondition} className="w-full p-2 border border-violet/30 text-[11px] text-violet flex items-center gap-2 hover:bg-violet/5"><Plus className="w-3 h-3" />添加条件</button>
-          <button onClick={addAction} className="w-full p-2 border border-jade/30 text-[11px] text-jade flex items-center gap-2 hover:bg-jade/5"><Plus className="w-3 h-3" />添加动作</button>
+          <button onClick={() => addAction("agent")} className="w-full p-2 border border-phosphor-400/35 text-[11px] text-phosphor-300 flex items-center gap-2 hover:bg-phosphor-400/5"><Plus className="w-3 h-3" />添加 Agent</button>
+          <button onClick={() => addAction("save_artifact")} className="w-full p-2 border border-jade/30 text-[11px] text-jade flex items-center gap-2 hover:bg-jade/5"><Plus className="w-3 h-3" />添加保存产物</button>
+          <button onClick={() => addAction()} className="w-full p-2 border border-jade/30 text-[11px] text-jade flex items-center gap-2 hover:bg-jade/5"><Plus className="w-3 h-3" />添加本地动作</button>
           <p className="text-[10px] leading-relaxed text-ink-faint">Gmail、飞书和 Webhook 节点将在真实运行时接入后再开放。</p>
           <div className="pt-3 border-t border-white/5">
             <p className="text-[10px] data-mono text-ink-faint uppercase flex items-center gap-1"><History className="w-3 h-3" />最近执行</p>
             <div className="mt-2 space-y-2 max-h-48 overflow-auto">
-              {runs.map((run) => <div key={run.id} className="text-[9px] border border-white/5 p-2"><span className={run.status === "success" ? "text-jade" : "text-rose-300"}>{run.status.toUpperCase()}</span><p className="text-ink-faint mt-1 line-clamp-2">{run.message}</p></div>)}
+              {runs.map((run) => <div key={run.id} className="text-[9px] border border-white/5 p-2"><div className="flex items-center justify-between gap-2"><span className={run.status === "success" ? "text-jade" : run.status === "running" ? "text-amber-400" : "text-rose-300"}>{run.status.toUpperCase()}</span><div className="flex items-center gap-2"><button type="button" className="text-ink-muted hover:underline" onClick={() => { if (expandedRunId === run.id) { setExpandedRunId(null); setRunSteps([]); } else { setExpandedRunId(run.id); void window.missionConsole.getWorkflowSteps(run.id).then(setRunSteps); } }}>{expandedRunId === run.id ? "收起" : "节点日志"}</button>{(run.status === "failed" || run.status === "interrupted") && <button type="button" className="text-phosphor-300 hover:underline" onClick={() => onResumeRun(run.id)} disabled={Boolean(resumingRunId)}>{resumingRunId === run.id ? "恢复中…" : "断点续跑"}</button>}</div></div><p className="text-ink-faint mt-1 line-clamp-2">{run.message}</p>{expandedRunId === run.id && <div className="mt-2 pt-2 border-t border-white/5 space-y-1.5">{runSteps.map((step) => <div key={step.stepId} className="flex items-start justify-between gap-2"><span className={step.status === "succeeded" ? "text-jade" : step.status === "running" ? "text-amber-400" : "text-rose-300"}>{step.stepId}</span><span className="text-ink-faint">{step.status} · {step.attempts} 次</span></div>)}</div>}</div>)}
               {runs.length === 0 && <p className="text-[10px] text-ink-faint">尚无执行记录</p>}
             </div>
           </div>
@@ -352,7 +428,7 @@ function WorkflowEditor({
           {draft.layout.map((node) => {
             const condition = node.kind === "condition" ? draft.conditions.find((item) => item.id === node.refId) : null;
             const action = node.kind === "action" ? draft.actions.find((item) => item.id === node.refId) : null;
-            const label = node.kind === "trigger" ? draft.trigger.label : condition ? `${condition.field} ${condition.op}` : action ? actionLabels[action.type] : "未知节点";
+            const label = node.kind === "trigger" ? draft.trigger.label : condition ? `${condition.field} ${condition.op}` : action ? action.label : "未知节点";
             return (
               <button
                 key={node.id}
@@ -373,6 +449,8 @@ function WorkflowEditor({
                   selectedNodeId === node.id && "ring-1 ring-phosphor-400",
                 )}
               >
+                {node.kind !== "trigger" && <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-phosphor-400 bg-obsidian-900" title="JSON 输入" />}
+                {orderedNodes.at(-1)?.id !== node.id && <span className="absolute -right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border border-phosphor-400 bg-obsidian-900" title="JSON 输出" />}
                 <span className="block text-[9px] uppercase data-mono text-ink-faint">{node.kind}</span>
                 <span className="block text-[11px] text-ink truncate mt-1">{label}</span>
               </button>
@@ -383,7 +461,7 @@ function WorkflowEditor({
           <p className="text-[10px] data-mono text-ink-faint uppercase mb-3">节点规则</p>
           {selectedLayout?.kind === "trigger" && <TriggerEditor draft={draft} setDraft={setDraft} folders={folders} />}
           {selectedCondition && <ConditionEditor condition={selectedCondition} setDraft={setDraft} />}
-          {selectedAction && <ActionEditor action={selectedAction} setDraft={setDraft} folders={folders} />}
+          {selectedAction && <ActionEditor action={selectedAction} setDraft={setDraft} folders={folders} modelProfiles={modelProfiles} />}
           {selectedLayout && selectedLayout.kind !== "trigger" && <button onClick={removeSelected} className="btn-ghost text-rose-300 mt-4"><Trash2 className="w-3 h-3" />删除节点</button>}
         </aside>
       </div>
@@ -411,15 +489,42 @@ function ConditionEditor({ condition, setDraft }: { condition: WorkflowCondition
   </div>;
 }
 
-function ActionEditor({ action, setDraft, folders }: { action: WorkflowAction; setDraft: React.Dispatch<React.SetStateAction<UpsertWorkflowInput>>; folders: ReturnType<typeof useMissionStore.getState>["folders"] }) {
+function ActionEditor({ action, setDraft, folders, modelProfiles }: { action: WorkflowAction; setDraft: React.Dispatch<React.SetStateAction<UpsertWorkflowInput>>; folders: ReturnType<typeof useMissionStore.getState>["folders"]; modelProfiles: ModelProfile[] }) {
   const patch = (next: Partial<WorkflowAction>) => setDraft((current) => ({ ...current, actions: current.actions.map((item) => item.id === action.id ? { ...item, ...next } : item) }));
   const patchConfig = (next: Partial<WorkflowAction["config"]>) => patch({ config: { ...action.config, ...next } });
+  const patchAgent = (next: Partial<NonNullable<WorkflowAction["config"]["agent"]>>) => patchConfig({ agent: { ...action.config.agent!, ...next } });
   return <div className="space-y-3">
-    <EditorField label="动作"><select className="input" value={action.type} onChange={(event) => { const type = event.target.value as WorkflowAction["type"]; patch({ type, label: actionLabels[type], config: {} }); }}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></EditorField>
+    <EditorField label="节点类型"><select className="input" value={action.type} onChange={(event) => { const type = event.target.value as WorkflowAction["type"]; patch({ type, label: actionLabels[type], config: actionConfig(type, modelProfiles) }); }}>{Object.entries(actionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></EditorField>
+    <EditorField label="节点名称"><input className="input" value={action.label} onChange={(event) => patch({ label: event.target.value })} /></EditorField>
     <EditorField label="目标任务舱"><select className="input" value={action.config.folderId ?? ""} onChange={(event) => patchConfig({ folderId: event.target.value || null })}><option value="">继承触发事件</option>{folders.filter((folder) => folder.status !== "archived").map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></EditorField>
     {action.type === "create_todo" && <><EditorField label="待办标题"><input className="input" value={action.config.title ?? ""} onChange={(event) => patchConfig({ title: event.target.value })} /></EditorField><EditorField label="负责人"><select className="input" value={action.config.assignee ?? "human"} onChange={(event) => patchConfig({ assignee: event.target.value as "human" | "agent" })}><option value="human">我</option><option value="agent">Agent</option></select></EditorField></>}
     {action.type === "set_folder_status" && <EditorField label="目标状态"><select className="input" value={action.config.status ?? "active"} onChange={(event) => patchConfig({ status: event.target.value as WorkflowAction["config"]["status"] })}><option value="active">进行中</option><option value="paused">暂停</option><option value="done">完成</option><option value="archived">归档</option></select></EditorField>}
     {(action.type === "write_timeline" || action.type === "notify") && <EditorField label="内容"><textarea className="input min-h-24" value={action.config.message ?? ""} onChange={(event) => patchConfig({ message: event.target.value })} /></EditorField>}
+    {action.type === "agent" && action.config.agent && <>
+      <EditorField label="模型配置">
+        <select className="input" value={action.config.agent.modelProfileId ?? ""} onChange={(event) => patchAgent({ modelProfileId: event.target.value || null })}>
+          <option value="">请选择模型</option>
+          {modelProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.model}{profile.apiKeyConfigured ? "" : "（缺少 Key）"}</option>)}
+        </select>
+        {action.config.agent.modelProfileId && !modelProfiles.find((profile) => profile.id === action.config.agent?.modelProfileId)?.apiKeyConfigured && <p className="text-[9px] text-amber-400 mt-1">该模型尚未配置 API Key，运行前请<Link to="/settings" className="underline ml-1">前往设置</Link></p>}
+      </EditorField>
+      <EditorField label="角色"><textarea className="input min-h-20" value={action.config.agent.role} onChange={(event) => patchAgent({ role: event.target.value })} /></EditorField>
+      <EditorField label="任务提示词"><textarea className="input min-h-28" value={action.config.agent.prompt} onChange={(event) => patchAgent({ prompt: event.target.value })} /></EditorField>
+      <EditorField label="输入来源"><select className="input" value={action.config.agent.inputSource} onChange={(event) => patchAgent({ inputSource: event.target.value as NonNullable<WorkflowAction["config"]["agent"]>["inputSource"] })}><option value="previous">上一节点 JSON</option><option value="trigger_materials">触发事件新增图片</option><option value="folder_images">任务舱全部图片</option><option value="selected_materials">指定材料</option></select></EditorField>
+      <EditorField label="输出格式"><select className="input" value={action.config.agent.outputFormat} onChange={(event) => patchAgent({ outputFormat: event.target.value as NonNullable<WorkflowAction["config"]["agent"]>["outputFormat"] })}><option value="json">JSON</option><option value="markdown">Markdown</option><option value="text">纯文本</option></select></EditorField>
+      {action.config.agent.outputFormat === "json" && <EditorField label="JSON Schema（可选）"><textarea className="input min-h-24 data-mono" value={action.config.agent.outputSchema ? JSON.stringify(action.config.agent.outputSchema, null, 2) : ""} onChange={(event) => { try { patchAgent({ outputSchema: event.target.value.trim() ? JSON.parse(event.target.value) : null }); } catch { /* 保留最后一次合法 Schema */ } }} placeholder='{"type":"object"}' /></EditorField>}
+      <div className="grid grid-cols-2 gap-2">
+        <EditorField label="Temperature"><input className="input" type="number" min={0} max={2} step={0.1} value={action.config.agent.temperature ?? 0.2} onChange={(event) => patchAgent({ temperature: Number(event.target.value) })} /></EditorField>
+        <EditorField label="最大输出 Token"><input className="input" type="number" min={128} value={action.config.agent.maxOutputTokens ?? 2048} onChange={(event) => patchAgent({ maxOutputTokens: Number(event.target.value) })} /></EditorField>
+        <EditorField label="超时（秒）"><input className="input" type="number" min={5} value={(action.config.agent.timeoutMs ?? 60_000) / 1000} onChange={(event) => patchAgent({ timeoutMs: Number(event.target.value) * 1000 })} /></EditorField>
+        <EditorField label="重试次数"><input className="input" type="number" min={0} max={3} value={action.config.agent.retryCount ?? 1} onChange={(event) => patchAgent({ retryCount: Number(event.target.value) })} /></EditorField>
+      </div>
+    </>}
+    {action.type === "save_artifact" && <>
+      <EditorField label="产物名称"><input className="input" value={action.config.artifactName ?? ""} onChange={(event) => patchConfig({ artifactName: event.target.value })} /></EditorField>
+      <EditorField label="产物格式"><select className="input" value={action.config.artifactFormat ?? "markdown"} onChange={(event) => patchConfig({ artifactFormat: event.target.value as NonNullable<WorkflowAction["config"]["artifactFormat"]> })}><option value="markdown">Markdown</option><option value="json">JSON</option><option value="text">纯文本</option></select></EditorField>
+      <p className="text-[10px] leading-relaxed text-ink-faint">只在该节点执行时写入任务舱材料库；上游 Agent 不会隐式创建文件。</p>
+    </>}
     {action.type === "run_agent" && <p className="text-[10px] leading-relaxed text-ink-faint">目标任务舱需已启用 Agent；全局防重入仍然生效。</p>}
   </div>;
 }

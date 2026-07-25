@@ -50,7 +50,9 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
   const [tab, setTab] = useState<MaterialType | "auto">("auto");
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
+  const [pickedFiles, setPickedFiles] = useState<Array<{ path: string; name: string }>>([]);
   const [picking, setPicking] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -60,21 +62,35 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
   const reset = () => {
     setInput("");
     setName("");
+    setPickedFiles([]);
     setTab("auto");
   };
 
   const handleSubmit = async () => {
     const value = input.trim();
-    if (!value) return;
-    const type = detectType(value, tab === "file" ? "auto" : tab);
-    const finalName = name.trim() || (type === "link" ? value : value.split(/[\\/]/).pop() || value);
+    if (!value && pickedFiles.length === 0) return;
     try {
+      setAdding(true);
       setError("");
-      await onAdd?.({ type, name: finalName, content: value });
+      if (pickedFiles.length > 0) {
+        for (const file of pickedFiles) {
+          await onAdd?.({
+            type: detectType(file.path, "auto"),
+            name: pickedFiles.length === 1 && name.trim() ? name.trim() : file.name,
+            content: file.path,
+          });
+        }
+      } else {
+        const type = detectType(value, tab === "file" ? "auto" : tab);
+        const finalName = name.trim() || (type === "link" ? value : value.split(/[\\/]/).pop() || value);
+        await onAdd?.({ type, name: finalName, content: value });
+      }
       reset();
       setModalOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -83,10 +99,11 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
     setError("");
     try {
       const picked = await window.missionConsole.pickMaterialFile();
-      if (!picked) return;
+      if (picked.length === 0) return;
       setTab("file");
-      setInput(picked.path);
-      if (!name.trim()) setName(picked.name);
+      setPickedFiles(picked);
+      setInput(picked.length === 1 ? picked[0].path : "");
+      if (!name.trim() && picked.length === 1) setName(picked[0].name);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -349,7 +366,10 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                       <input
                         autoFocus
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          setPickedFiles([]);
+                        }}
                         placeholder={placeholder}
                         className="flex-1 min-w-0 px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors data-mono"
                       />
@@ -357,7 +377,8 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                         <button
                           type="button"
                           onClick={() => void pickFile()}
-                          disabled={picking}
+                          disabled={picking || adding}
+                          title={t("可一次选择多个文件", "Select multiple files at once")}
                           className="btn-ghost shrink-0"
                         >
                           {picking ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
@@ -375,6 +396,11 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                           ? t("🔗 链接将自动抓取标题（待接入）", "🔗 Link titles will be fetched automatically (coming soon)")
                           : t("📝 笔记将存储在数据库中", "📝 Notes are stored in the database")}
                   </p>
+                  {pickedFiles.length > 1 && (
+                    <p className="text-[9px] data-mono text-phosphor-300 mt-1.5">
+                      {t(`已选择 ${pickedFiles.length} 个文件，添加时将分别创建引用`, `${pickedFiles.length} files selected; each will be added as a reference.`)}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -405,16 +431,16 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                 </button>
                 <button
                   onClick={() => void handleSubmit()}
-                  disabled={!input.trim()}
+                  disabled={(!input.trim() && pickedFiles.length === 0) || adding}
                   className={cn(
                     "px-3 py-1.5 text-[11px] border transition-all flex items-center gap-1.5",
-                    input.trim()
+                    (input.trim() || pickedFiles.length > 0) && !adding
                       ? "bg-phosphor-400/12 border-phosphor-400/50 text-phosphor-100 hover:bg-phosphor-400/20"
                       : "opacity-40 cursor-not-allowed bg-phosphor-400/5 border-phosphor-400/20 text-phosphor-400/40"
                   )}
                 >
-                  <Check className="w-2.5 h-2.5" strokeWidth={2} />
-                  {t("添加", "Add")}
+                  {adding ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Check className="w-2.5 h-2.5" strokeWidth={2} />}
+                  {adding ? t("添加中…", "Adding…") : t("添加", "Add")}
                 </button>
               </div>
             </motion.div>
