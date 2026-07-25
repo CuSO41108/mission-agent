@@ -21,7 +21,9 @@ import type {
   FolderStatus,
   UpsertWorkflowInput,
   WorkflowRun,
+  WorkflowStepRun,
   CopilotModelResult,
+  CopilotDraft,
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
 import type { AgentRunRecord } from "../core/agent";
@@ -54,11 +56,16 @@ const api = {
       | { ok: true; content: string; model: string }
       | { ok: false; error: string }
     >,
+  testModelProfile: (profileId: string) =>
+    ipcRenderer.invoke("model-profile:test", profileId) as Promise<
+      | { ok: true; content: string; model: string }
+      | { ok: false; error: string }
+    >,
   analyzeCopilot: (prompt: string) => ipcRenderer.invoke("copilot:analyze", prompt) as Promise<
     | { ok: true; result: CopilotModelResult }
     | { ok: false; error: string }
   >,
-  draftCopilot: (prompt: string) => ipcRenderer.invoke("copilot:draft", prompt) as Promise<
+  draftCopilot: (prompt: string, baseDraft?: CopilotDraft | null) => ipcRenderer.invoke("copilot:draft", prompt, baseDraft) as Promise<
     | { ok: true; result: CopilotModelResult }
     | { ok: false; error: string }
   >,
@@ -86,8 +93,12 @@ const api = {
     ipcRenderer.invoke("workflow:delete", id) as Promise<boolean>,
   runWorkflow: (id: string, folderId?: string | null) =>
     ipcRenderer.invoke("workflow:run", id, folderId) as Promise<WorkflowRun>,
+  resumeWorkflow: (runId: string) =>
+    ipcRenderer.invoke("workflow:resume", runId) as Promise<WorkflowRun>,
   getWorkflowRuns: (id: string) =>
     ipcRenderer.invoke("workflow:runs", id) as Promise<WorkflowRun[]>,
+  getWorkflowSteps: (runId: string) =>
+    ipcRenderer.invoke("workflow:steps", runId) as Promise<WorkflowStepRun[]>,
 
   // ============ 写操作（Phase 5） ============
   // folder 状态变更
@@ -108,7 +119,7 @@ const api = {
   deleteMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
   pickMaterialFile: () =>
-    ipcRenderer.invoke("file:pickMaterial") as Promise<{ path: string; name: string } | null>,
+    ipcRenderer.invoke("file:pickMaterial") as Promise<Array<{ path: string; name: string }>>,
   getPathForDroppedFile: (file: File) => webUtils.getPathForFile(file),
   openMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:open", folderId, materialId) as Promise<

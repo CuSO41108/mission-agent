@@ -144,6 +144,7 @@ function ActionButton({
 
 function DraftPreview({ message }: { message: CopilotMessage }) {
   const { text: t } = usePreferences();
+  const navigate = useNavigate();
   const applyCopilotDraft = useMissionStore((state) => state.applyCopilotDraft);
   const cancelCopilotDraft = useMissionStore((state) => state.cancelCopilotDraft);
   const [applying, setApplying] = useState(false);
@@ -153,7 +154,8 @@ function DraftPreview({ message }: { message: CopilotMessage }) {
   const confirm = async () => {
     setApplying(true);
     try {
-      await applyCopilotDraft(message.id);
+      const createdId = await applyCopilotDraft(message.id);
+      if (createdId && draft.kind === "workflow") navigate(`/workflow?edit=${encodeURIComponent(createdId)}`);
     } finally {
       setApplying(false);
     }
@@ -183,7 +185,7 @@ function DraftPreview({ message }: { message: CopilotMessage }) {
         <div className="mt-2.5 flex gap-2">
           <button type="button" onClick={() => void confirm()} disabled={applying} className="btn-phosphor h-7 disabled:opacity-50">
             {applying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-            {applying ? t("创建中", "Creating") : t("确认创建", "Confirm create")}
+            {applying ? t("保存中", "Saving") : draft.kind === "workflow" ? t("保存草稿并编辑", "Save draft & edit") : t("确认创建", "Confirm create")}
           </button>
           <button type="button" onClick={() => cancelCopilotDraft(message.id)} disabled={applying} className="btn-ghost h-7">
             <X className="w-3 h-3" /> {t("取消", "Cancel")}
@@ -315,6 +317,8 @@ export default function CopilotPanel() {
   const { text: t } = usePreferences();
   const messages = useMissionStore((s) => s.copilotMessages);
   const streaming = useMissionStore((s) => s.copilotStreaming);
+  const requestedMode = useMissionStore((s) => s.copilotRequestedMode);
+  const requestCopilotMode = useMissionStore((s) => s.requestCopilotMode);
   const send = useMissionStore((s) => s.sendCopilot);
   const clear = useMissionStore((s) => s.clearCopilot);
   const [input, setInput] = useState("");
@@ -332,6 +336,12 @@ export default function CopilotPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (!requestedMode) return;
+    setMode(requestedMode);
+    requestCopilotMode(null);
+  }, [requestedMode, requestCopilotMode]);
 
   const handleSend = (text?: string, requestedMode = mode) => {
     const content = (text ?? input).trim();

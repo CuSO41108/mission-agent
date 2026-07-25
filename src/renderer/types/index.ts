@@ -174,9 +174,11 @@ export type WorkflowConditionOperator = "eq" | "neq" | "contains" | "before" | "
 export type WorkflowActionType =
   | "create_todo"
   | "set_folder_status"
+  | "agent"
   | "run_agent"
   | "write_timeline"
-  | "notify";
+  | "notify"
+  | "save_artifact";
 
 export interface WorkflowTrigger {
   type: WorkflowTriggerType;
@@ -202,7 +204,71 @@ export interface WorkflowAction {
     status?: FolderStatus;
     message?: string;
     folderId?: string | null;
+    agent?: WorkflowAgentNodeConfig;
+    artifactName?: string;
+    artifactFormat?: ArtifactFormat;
   };
+}
+
+/** 工作流节点只通过数据边传递统一 JSON 信封。第一版限制为单链路 DAG。 */
+export interface WorkflowDataEnvelope {
+  version: 1;
+  data: unknown;
+  artifacts?: Array<{
+    name: string;
+    mediaType: string;
+    /** 大内容只保存引用；不得把图片 Base64 写入工作流状态。 */
+    ref: string;
+  }>;
+  meta?: Record<string, unknown>;
+}
+
+export type WorkflowGraphNodeType =
+  | "trigger"
+  | "agent"
+  | "run_agent"
+  | "create_todo"
+  | "set_folder_status"
+  | "write_timeline"
+  | "notify"
+  | "save_artifact";
+
+export interface WorkflowAgentNodeConfig {
+  modelProfileId: string | null;
+  role: string;
+  prompt: string;
+  inputSource: "previous" | "trigger_materials" | "folder_images" | "selected_materials";
+  materialIds?: string[];
+  outputFormat: "json" | "markdown" | "text";
+  outputSchema?: Record<string, unknown> | null;
+  temperature?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+  retryCount?: number;
+}
+
+export interface WorkflowGraphNode {
+  id: string;
+  type: WorkflowGraphNodeType;
+  label: string;
+  x: number;
+  y: number;
+  config: WorkflowAction["config"];
+}
+
+/** 单一数据边：既表达流转顺序，也把 source.output 传给 target.input。 */
+export interface WorkflowDataEdge {
+  id: string;
+  sourceNodeId: string;
+  sourcePort: "output";
+  targetNodeId: string;
+  targetPort: "input";
+}
+
+export interface WorkflowGraph {
+  schemaVersion: 1;
+  nodes: WorkflowGraphNode[];
+  edges: WorkflowDataEdge[];
 }
 
 export interface WorkflowNodeLayout {
@@ -221,6 +287,8 @@ export interface WorkflowRule {
   conditions: WorkflowCondition[];
   actions: WorkflowAction[];
   layout: WorkflowNodeLayout[];
+  graph: WorkflowGraph;
+  version: number;
   runs: number;
   lastRun: number | null;
   lastStatus: "success" | "failed" | null;
@@ -230,12 +298,43 @@ export interface WorkflowRule {
 export interface WorkflowRun {
   id: string;
   workflowId: string;
-  status: "success" | "failed" | "skipped";
+  status: "running" | "success" | "failed" | "skipped" | "interrupted";
   triggerType: WorkflowTriggerType;
   folderId: string | null;
   message: string;
   startedAt: number;
   finishedAt: number;
+  planVersion?: number;
+  resumedFromRunId?: string | null;
+}
+
+export type WorkflowStepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped" | "needs_review";
+
+export interface WorkflowStepRun {
+  runId: string;
+  stepId: string;
+  status: WorkflowStepStatus;
+  idempotencyKey: string;
+  inputHash: string | null;
+  output: WorkflowDataEnvelope | null;
+  outputRef: string | null;
+  error: string | null;
+  attempts: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+export interface WorkflowCheckpoint {
+  runId: string;
+  workflowId: string;
+  planVersion: number;
+  event: Record<string, unknown>;
+  context: WorkflowDataEnvelope;
+  nextStepId: string | null;
+  status: "running" | "paused" | "failed" | "completed" | "needs_review";
+  leaseOwner: string | null;
+  leaseExpiresAt: number | null;
+  updatedAt: number;
 }
 
 export interface UpsertWorkflowInput {
@@ -245,6 +344,8 @@ export interface UpsertWorkflowInput {
   conditions: WorkflowCondition[];
   actions: WorkflowAction[];
   layout: WorkflowNodeLayout[];
+  /** 新编辑器直接提交 graph；旧调用方缺省时由主进程从 actions/layout 转换。 */
+  graph?: WorkflowGraph;
 }
 
 export interface AgentActivity {

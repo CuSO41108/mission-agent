@@ -7,7 +7,7 @@
  * 每次启动时 migrate 会比对 SCHEMA_VERSION 常量
  * 若低于当前版本，则执行新增的建表语句
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const CREATE_SCHEMA_VERSION_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -145,11 +145,27 @@ CREATE TABLE IF NOT EXISTS workflows (
   conditions TEXT,
   actions TEXT,
   layout TEXT,
+  graph TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
   runs INTEGER DEFAULT 0,
   last_run INTEGER,
   last_status TEXT,
   last_error TEXT
 );
+`;
+
+/** 每次保存保留一份不可变图快照，供 Copilot 修改预览和人工回退。 */
+export const CREATE_WORKFLOW_VERSIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS workflow_versions (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  graph TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(workflow_id, version),
+  FOREIGN KEY(workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_versions_workflow ON workflow_versions(workflow_id, version DESC);
 `;
 
 export const CREATE_WORKFLOW_RUNS_TABLE = `
@@ -162,10 +178,51 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   message TEXT,
   started_at INTEGER NOT NULL,
   finished_at INTEGER NOT NULL,
+  plan_version INTEGER NOT NULL DEFAULT 1,
+  resumed_from_run_id TEXT,
   FOREIGN KEY(workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
   FOREIGN KEY(folder_id) REFERENCES folders(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON workflow_runs(workflow_id, started_at DESC);
+`;
+
+/** 节点级持久化状态。output_json 只保存小型 JSON，大结果使用 output_ref。 */
+export const CREATE_WORKFLOW_STEP_RUNS_TABLE = `
+CREATE TABLE IF NOT EXISTS workflow_step_runs (
+  run_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed','skipped','needs_review')),
+  idempotency_key TEXT NOT NULL,
+  input_hash TEXT,
+  output_json TEXT,
+  output_ref TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER,
+  finished_at INTEGER,
+  PRIMARY KEY(run_id, step_id),
+  FOREIGN KEY(run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_status ON workflow_step_runs(run_id, status);
+`;
+
+/** 稳定业务边界上的 Checkpoint；租约避免多个进程同时恢复同一个 Run。 */
+export const CREATE_WORKFLOW_CHECKPOINTS_TABLE = `
+CREATE TABLE IF NOT EXISTS workflow_checkpoints (
+  run_id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  plan_version INTEGER NOT NULL,
+  event_json TEXT NOT NULL,
+  context_json TEXT NOT NULL,
+  next_step_id TEXT,
+  status TEXT NOT NULL CHECK(status IN ('running','paused','failed','completed','needs_review')),
+  lease_owner TEXT,
+  lease_expires_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY(run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  FOREIGN KEY(workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_recoverable ON workflow_checkpoints(status, lease_expires_at);
 `;
 
 /**
@@ -240,7 +297,10 @@ export const ALL_SCHEMA_SQL: string[] = [
   CREATE_AGENT_CONFIGS_TABLE,
   CREATE_INTEGRATIONS_TABLE,
   CREATE_WORKFLOWS_TABLE,
+  CREATE_WORKFLOW_VERSIONS_TABLE,
   CREATE_WORKFLOW_RUNS_TABLE,
+  CREATE_WORKFLOW_STEP_RUNS_TABLE,
+  CREATE_WORKFLOW_CHECKPOINTS_TABLE,
   CREATE_AGENT_RUNS_TABLE,
   CREATE_AGENT_RESOURCE_LOCKS_TABLE,
   CREATE_SYNC_LOG_TABLE,

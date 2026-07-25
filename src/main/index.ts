@@ -20,7 +20,7 @@ import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import type { TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput } from "../renderer/types";
+import type { CopilotDraft, TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput, WorkflowRule } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
 import { seedDatabase } from "../core/db/seed";
@@ -35,6 +35,7 @@ import {
   updateIntegration,
   deleteIntegration,
   getAllWorkflows,
+  getWorkflowById,
   createFolder,
   createTodo,
   deleteFolder,
@@ -58,6 +59,7 @@ import {
   mergeConfig,
   testDeepSeek,
   type AppConfig,
+  type ModelProfile,
 } from "../core/config";
 import {
   getSchedulerStatus,
@@ -69,16 +71,23 @@ import {
 } from "./scheduler";
 import { DEEPSEEK_REQUEST_TIMEOUT_MS } from "./schedulerPolicy";
 import {
+  createWorkflowModelRuntime,
   registerWorkflowRuntime,
+  resumeWorkflowRun,
   runDueScheduledWorkflows,
   runWorkflow,
 } from "../core/workflow";
 import { analyzeWithCopilot, draftWithCopilot } from "../core/copilot/copilotService";
 import { AgentRunRepository } from "../core/repositories/agentRunRepository";
+import { WorkflowStepRunRepository } from "../core/repositories/workflowRepository";
 import { agentRunQueue } from "../core/agent";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
+
+// 主进程位于 <应用目录>/out/main；不要使用 app.getAppPath()，它在通过
+// `mission-console` 从任意工作目录启动时会指向调用方的当前目录。
+const appRoot = path.resolve(__dirname, "../..");
 
 const PRODUCT_NAME = "Mission Console";
 const APP_ID = "com.mission-console.app";
@@ -122,6 +131,49 @@ function loadModelApiKey(): string {
   }
 }
 
+function modelProfileSecretsPath(): string {
+  return path.join(app.getPath("userData"), "model-profile-secrets.secret");
+}
+
+function loadModelProfileSecrets(): Record<string, string> {
+  const secretPath = modelProfileSecretsPath();
+  if (!fs.existsSync(secretPath) || !safeStorage.isEncryptionAvailable()) return {};
+  try {
+    const raw = safeStorage.decryptString(Buffer.from(fs.readFileSync(secretPath, "utf8"), "base64"));
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  } catch (error) {
+    console.error("[config] 模型配置密钥解密失败：", error);
+    return {};
+  }
+}
+
+function saveModelProfileSecrets(secrets: Record<string, string>): void {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("系统安全存储暂不可用，API Key 未保存");
+  const encrypted = safeStorage.encryptString(JSON.stringify(secrets)).toString("base64");
+  fs.writeFileSync(modelProfileSecretsPath(), encrypted, "utf8");
+}
+
+function hydrateModelProfiles(config: AppConfig): AppConfig {
+  const secrets = loadModelProfileSecrets();
+  const profiles = config.models.profiles.map((profile): ModelProfile => {
+    if (profile.id === "deepseek-default") {
+      return {
+        ...profile,
+        provider: "deepseek",
+        apiKey: config.deepseek.apiKey,
+        baseUrl: config.deepseek.baseUrl,
+        model: config.deepseek.model,
+        apiKeyConfigured: Boolean(config.deepseek.apiKey),
+      };
+    }
+    const apiKey = secrets[profile.id] || profile.apiKey || "";
+    return { ...profile, apiKey, apiKeyConfigured: Boolean(apiKey) };
+  });
+  return { ...config, models: { ...config.models, profiles } };
+}
+
 function publicConfig(config: AppConfig): AppConfig {
   return {
     ...config,
@@ -129,6 +181,14 @@ function publicConfig(config: AppConfig): AppConfig {
       ...config.deepseek,
       apiKey: "",
       apiKeyConfigured: Boolean(config.deepseek.apiKey),
+    },
+    models: {
+      ...config.models,
+      profiles: config.models.profiles.map((profile) => ({
+        ...profile,
+        apiKey: "",
+        apiKeyConfigured: Boolean(profile.apiKey),
+      })),
     },
     system: { ...config.system, autoLaunch: false },
   };
@@ -222,7 +282,7 @@ function createWindow(): void {
 function createTray(): void {
   tray?.destroy();
   tray = null;
-  const iconPath = path.join(app.getAppPath(), "assets", "tray-icon.png");
+  const iconPath = path.join(appRoot, "assets", "tray-icon.png");
   const icon = nativeImage.createFromPath(iconPath);
   if (icon.isEmpty()) {
     console.error(`[tray] 无法加载图标：${iconPath}`);
@@ -322,6 +382,7 @@ function initAppConfig(): void {
     deepseek: { ...loaded.deepseek, apiKey, apiKeyConfigured: Boolean(apiKey) },
     system: { ...loaded.system, autoLaunch: false },
   };
+  appConfig = hydrateModelProfiles(appConfig);
   persistConfig(appConfig);
   console.log(`[config] 已加载 ${configPath()}`);
 }
@@ -332,7 +393,7 @@ function getConfig(): AppConfig {
     // 理论上不会走到这里，whenReady 时已 init
     const loaded = loadConfig(configPath());
     const apiKey = loadModelApiKey() || loaded.deepseek.apiKey;
-    appConfig = { ...loaded, deepseek: { ...loaded.deepseek, apiKey, apiKeyConfigured: Boolean(apiKey) } };
+    appConfig = hydrateModelProfiles({ ...loaded, deepseek: { ...loaded.deepseek, apiKey, apiKeyConfigured: Boolean(apiKey) } });
   }
   return appConfig;
 }
@@ -348,15 +409,31 @@ function updateConfig(partial: Partial<AppConfig>): AppConfig {
   }
   const incomingKey = partial.deepseek?.apiKey?.trim();
   if (incomingKey) saveModelApiKey(incomingKey);
+  let profileSecretsChanged = false;
+  const profileSecrets = loadModelProfileSecrets();
+  const currentProfiles = new Map(current.models.profiles.map((profile) => [profile.id, profile]));
+  const incomingProfiles = partial.models?.profiles?.map((profile): ModelProfile => {
+    const submittedKey = profile.apiKey.trim();
+    const apiKey = submittedKey || currentProfiles.get(profile.id)?.apiKey || profileSecrets[profile.id] || "";
+    if (submittedKey) {
+      profileSecrets[profile.id] = submittedKey;
+      profileSecretsChanged = true;
+    }
+    return { ...profile, apiKey, apiKeyConfigured: Boolean(apiKey) };
+  });
+  if (profileSecretsChanged) saveModelProfileSecrets(profileSecrets);
   const merged = mergeConfig(current, {
     ...partial,
     deepseek: partial.deepseek
       ? { ...partial.deepseek, apiKey: incomingKey || current.deepseek.apiKey, apiKeyConfigured: Boolean(incomingKey || current.deepseek.apiKey) }
       : undefined,
+    models: partial.models
+      ? { ...partial.models, profiles: incomingProfiles ?? current.models.profiles }
+      : undefined,
     system: partial.system ? { ...partial.system, autoLaunch: false } : undefined,
   });
-  appConfig = merged;
-  persistConfig(merged);
+  appConfig = hydrateModelProfiles(merged);
+  persistConfig(appConfig);
 
   // 同步运行时状态：快捷键变了就重注册
   // 同步运行时状态：开关变化时启动/停止固定的每小时调度器
@@ -372,7 +449,27 @@ function updateConfig(partial: Partial<AppConfig>): AppConfig {
     }
   }
 
-  return publicConfig(merged);
+  return publicConfig(appConfig);
+}
+
+function assertWorkflowModelsReady(workflow: UpsertWorkflowInput | WorkflowRule): void {
+  const nodes = [
+    ...workflow.actions.filter((action) => action.type === "agent").map((action) => ({ id: action.id, label: action.label, agent: action.config.agent })),
+    ...(workflow.graph?.nodes ?? []).filter((node) => node.type === "agent").map((node) => ({ id: node.id, label: node.label, agent: node.config.agent })),
+  ];
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    const profileId = node.agent?.modelProfileId;
+    if (!profileId) throw new Error(`Agent 节点“${node.label}”尚未选择模型，请先配置`);
+    const profile = getConfig().models.profiles.find((item) => item.id === profileId);
+    if (!profile) throw new Error(`Agent 节点“${node.label}”引用的模型配置已失效，请重新选择`);
+    if (!profile.apiKey) throw new Error(`模型“${profile.name}”缺少 API Key，请先到设置中配置`);
+    if (node.agent?.inputSource !== "previous" && !profile.capabilities.includes("image")) {
+      throw new Error(`模型“${profile.name}”不支持图片输入，请更换模型配置`);
+    }
+  }
 }
 
 type UpdateCheck = {
@@ -385,7 +482,7 @@ type UpdateCheck = {
 function updateClient(): {
   checkForUpdate: (options: { currentVersion: string }) => Promise<UpdateCheck>;
 } {
-  return require(path.join(app.getAppPath(), "bin", "update-client.cjs"));
+  return require(path.join(appRoot, "bin", "update-client.cjs"));
 }
 
 async function checkForAppUpdate(): Promise<UpdateCheck> {
@@ -395,7 +492,7 @@ async function checkForAppUpdate(): Promise<UpdateCheck> {
 function startAppUpdate(): { ok: true } | { ok: false; error: string } {
   const nodePath = process.env.MISSION_CONSOLE_NODE_PATH;
   if (!nodePath) return { ok: false, error: "自动更新仅适用于通过 mission-console 全局安装的正式版。" };
-  const updater = path.join(app.getAppPath(), "bin", "apply-update.cjs");
+  const updater = path.join(appRoot, "bin", "apply-update.cjs");
   const child = spawn(nodePath, [updater, "--wait-pid", String(process.pid)], {
     detached: true,
     stdio: "ignore",
@@ -470,11 +567,21 @@ function registerIpc(): void {
 
   // 工作流
   ipcMain.handle("workflow:list", () => getAllWorkflows());
-  ipcMain.handle("workflow:create", (_e, input: UpsertWorkflowInput) => createWorkflow(input));
-  ipcMain.handle("workflow:update", (_e, id: string, input: UpsertWorkflowInput) => updateWorkflow(id, input));
+  ipcMain.handle("workflow:create", (_e, input: UpsertWorkflowInput) => {
+    if (input.enabled) assertWorkflowModelsReady(input);
+    return createWorkflow(input);
+  });
+  ipcMain.handle("workflow:update", (_e, id: string, input: UpsertWorkflowInput) => {
+    if (input.enabled) assertWorkflowModelsReady(input);
+    return updateWorkflow(id, input);
+  });
   ipcMain.handle("workflow:delete", (_e, id: string) => deleteWorkflow(id));
   ipcMain.handle("workflow:runs", (_e, id: string) => getWorkflowRuns(id));
+  ipcMain.handle("workflow:steps", (_e, runId: string) => WorkflowStepRunRepository.list(runId));
   ipcMain.handle("workflow:run", async (_e, id: string, folderId?: string | null) => {
+    const workflow = getWorkflowById(id);
+    if (!workflow) throw new Error("工作流不存在");
+    assertWorkflowModelsReady(workflow);
     const run = await runWorkflow(id, {
       type: "manual",
       folderId: folderId ?? null,
@@ -482,6 +589,7 @@ function registerIpc(): void {
     });
     return run;
   });
+  ipcMain.handle("workflow:resume", (_e, runId: string) => resumeWorkflowRun(runId));
 
   // ============ 配置（Phase 4） ============
   // 渲染层只得到“已配置”状态，不得到可逆的 API Key。
@@ -517,12 +625,14 @@ function registerIpc(): void {
       return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   });
-  ipcMain.handle("copilot:draft", async (_e, prompt: string) => {
+  ipcMain.handle("copilot:draft", async (_e, prompt: string, baseDraft?: CopilotDraft | null) => {
     try {
       const config = getConfig();
       const result = await draftWithCopilot(config.deepseek, getAllFoldersWithDetails(), prompt, {
         modelConcurrency: config.agent.maxConcurrentRuns,
         modelCapacityKey: `${config.deepseek.baseUrl}|${config.deepseek.model}`,
+        modelProfiles: config.models.profiles,
+        baseDraft: baseDraft ?? null,
       });
       return { ok: true as const, result };
     } catch (error) {
@@ -562,11 +672,20 @@ function registerIpc(): void {
   ipcMain.handle("file:pickMaterial", async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
       title: "选择要引用的材料文件",
-      properties: ["openFile"],
+      properties: ["openFile", "multiSelections"],
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    const filePath = result.filePaths[0];
-    return { path: filePath, name: path.basename(filePath) };
+    if (result.canceled || result.filePaths.length === 0) return [];
+    return result.filePaths.map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
+  });
+  ipcMain.handle("model-profile:test", async (_e, profileId: string) => {
+    try {
+      const profile = getConfig().models.profiles.find((item) => item.id === profileId);
+      if (!profile) throw new Error("模型配置不存在");
+      const result = await testDeepSeek(profile);
+      return { ok: true as const, content: result.content, model: result.model };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
   });
   ipcMain.handle("material:open", async (_e, folderId: string, materialId: string) => {
     const material = getFolderDetail(folderId)?.materials.find((item) => item.id === materialId);
@@ -605,7 +724,12 @@ function registerIpc(): void {
   // Workflow 开关
   ipcMain.handle(
     "workflow:toggle",
-    (_e, workflowId: string, enabled: boolean) => toggleWorkflow(workflowId, enabled),
+    (_e, workflowId: string, enabled: boolean) => {
+      const workflow = getWorkflowById(workflowId);
+      if (!workflow) throw new Error("工作流不存在");
+      if (enabled) assertWorkflowModelsReady(workflow);
+      return toggleWorkflow(workflowId, enabled);
+    },
   );
 
   // ============ 心跳（Phase 5） ============
@@ -766,7 +890,16 @@ app.whenReady().then(() => {
       });
     }
   });
+  const workflowModelRuntime = createWorkflowModelRuntime({
+    resolveProfile: (profileId) => getConfig().models.profiles.find((profile) => profile.id === profileId) ?? null,
+    modelConcurrency: getConfig().agent.maxConcurrentRuns,
+    stateRoot: path.join(app.getPath("userData"), "workflow-state"),
+    artifactRoot: getConfig().storage.vaultDir
+      ? path.join(getConfig().storage.vaultDir, "workflow-artifacts")
+      : path.join(app.getPath("userData"), "workflow-artifacts"),
+  });
   disposeWorkflowRuntime = registerWorkflowRuntime({
+    ...workflowModelRuntime,
     runAgent: async (folderId) => {
       if (!mainWindow) return { ok: false, error: "主窗口尚未初始化" };
       const result = await runFolderOnce(getConfig, mainWindow, folderId, "workflow");

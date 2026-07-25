@@ -17,6 +17,26 @@ export interface DeepSeekConfig {
   apiKeyConfigured?: boolean;
 }
 
+export type ModelProvider = "openai_compatible" | "deepseek" | "dashscope";
+export type ModelCapability = "text" | "image" | "structured_output" | "reasoning";
+
+/** 可被工作流节点复用的命名模型配置。密钥只在主进程内存中存在。 */
+export interface ModelProfile {
+  id: string;
+  name: string;
+  provider: ModelProvider;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  capabilities: ModelCapability[];
+  apiKeyConfigured?: boolean;
+}
+
+export interface ModelsConfig {
+  defaultPlannerProfileId: string;
+  profiles: ModelProfile[];
+}
+
 /**
  * Agent 心跳调度配置
  */
@@ -54,6 +74,7 @@ export interface StorageConfig {
  */
 export interface AppConfig {
   deepseek: DeepSeekConfig;
+  models: ModelsConfig;
   agent: AgentConfig;
   system: SystemConfig;
   storage: StorageConfig;
@@ -94,6 +115,19 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: "deepseek-chat",
     apiKeyConfigured: false,
   },
+  models: {
+    defaultPlannerProfileId: "deepseek-default",
+    profiles: [{
+      id: "deepseek-default",
+      name: "DeepSeek 默认模型",
+      provider: "deepseek",
+      apiKey: "",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      capabilities: ["text", "structured_output"],
+      apiKeyConfigured: false,
+    }],
+  },
   agent: {
     heartbeatIntervalMin: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
     enabled: true,
@@ -123,6 +157,11 @@ export const DEFAULT_CONFIG: AppConfig = {
 export function mergeConfig(base: AppConfig, partial: Partial<AppConfig>): AppConfig {
   return {
     deepseek: { ...base.deepseek, ...partial.deepseek },
+    models: {
+      ...base.models,
+      ...partial.models,
+      profiles: partial.models?.profiles ?? base.models.profiles,
+    },
     agent: {
       ...base.agent,
       ...partial.agent,

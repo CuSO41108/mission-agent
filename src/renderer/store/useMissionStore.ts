@@ -24,6 +24,7 @@ interface MissionState {
   copilotMessages: CopilotMessage[];
   copilotOpen: boolean;
   copilotStreaming: boolean;
+  copilotRequestedMode: CopilotMode | null;
   notifications: AgentNotification[];
   commandPaletteOpen: boolean;
   notificationPanelOpen: boolean;
@@ -54,9 +55,10 @@ interface MissionState {
   sendCopilot: (content: string, mode: CopilotMode) => Promise<void>;
   pushCopilot: (content: string) => void;
   clearCopilot: () => void;
-  applyCopilotDraft: (messageId: string) => Promise<void>;
+  applyCopilotDraft: (messageId: string) => Promise<string | null>;
   cancelCopilotDraft: (messageId: string) => void;
   setCopilotOpen: (open: boolean) => void;
+  requestCopilotMode: (mode: CopilotMode | null) => void;
   runCopilotAction: (messageId: string, actionId: string) => void;
   addMaterial: (folderId: string, m: Omit<Material, "id" | "addedAt" | "folderId">) => Promise<Material>;
   updateNoteMaterial: (folderId: string, materialId: string, content: string) => Promise<Material>;
@@ -190,6 +192,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   copilotMessages: [newCopilotWelcome()],
   copilotOpen: false,
   copilotStreaming: false,
+  copilotRequestedMode: null,
   notifications: [],
   commandPaletteOpen: false,
   notificationPanelOpen: false,
@@ -475,9 +478,12 @@ export const useMissionStore = create<MissionState>((set, get) => ({
       copilotStreaming: true,
     }));
     try {
+      const baseDraft = mode === "draft"
+        ? [...get().copilotMessages].reverse().find((message) => message.draftStatus === "pending" && message.draft?.kind === "workflow")?.draft ?? null
+        : null;
       const response = mode === "analysis"
         ? await window.missionConsole.analyzeCopilot(content)
-        : await window.missionConsole.draftCopilot(content);
+        : await window.missionConsole.draftCopilot(content, baseDraft);
       if (!response.ok) throw new Error(response.error);
       const result = response.result;
       set((state) => ({
@@ -522,19 +528,23 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   applyCopilotDraft: async (messageId) => {
     const message = get().copilotMessages.find((item) => item.id === messageId);
     const draft = message?.draft;
-    if (!draft || message?.draftStatus !== "pending") return;
+    if (!draft || message?.draftStatus !== "pending") return null;
     try {
+      let createdId: string | null = null;
       if (draft.kind === "folder") {
         const folder = await get().createFolder(draft.input);
+        createdId = folder.id;
         for (const todo of draft.todos) {
           await get().createTodo(folder.id, { ...todo, dueDate: null });
         }
       } else {
-        await get().createWorkflow(draft.input);
+        const workflow = await get().createWorkflow(draft.input);
+        createdId = workflow.id;
       }
       set((state) => ({
         copilotMessages: state.copilotMessages.map((item) => item.id === messageId ? { ...item, draftStatus: "applied", draftError: undefined } : item),
       }));
+      return createdId;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       set((state) => ({
@@ -565,6 +575,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     })),
 
   setCopilotOpen: (open) => set({ copilotOpen: open }),
+  requestCopilotMode: (mode) => set({ copilotOpen: true, copilotRequestedMode: mode }),
 
   pushNotification: (n) =>
     set((s) => ({

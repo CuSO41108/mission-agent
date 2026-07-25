@@ -135,6 +135,19 @@ export function migrateDatabase(): void {
       }
     }
 
+    if (currentVersion < 8) {
+      const ensureColumn = (table: string, column: string, definition: string) => {
+        const columns = db.prepare(`PRAGMA table_info(${table});`).all() as Array<{ name: string }>;
+        if (!columns.some((item) => item.name === column)) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+        }
+      };
+      ensureColumn("workflows", "graph", "TEXT");
+      ensureColumn("workflows", "version", "INTEGER NOT NULL DEFAULT 1");
+      ensureColumn("workflow_runs", "plan_version", "INTEGER NOT NULL DEFAULT 1");
+      ensureColumn("workflow_runs", "resumed_from_run_id", "TEXT");
+    }
+
     // 记录版本号
     db.prepare(
       "INSERT INTO schema_version (version, applied_at) VALUES (?, ?);",

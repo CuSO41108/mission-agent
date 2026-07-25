@@ -12,6 +12,10 @@ export {
   mergeConfig,
   type AppConfig,
   type DeepSeekConfig,
+  type ModelProvider,
+  type ModelCapability,
+  type ModelProfile,
+  type ModelsConfig,
   type AgentConfig,
   type SystemConfig,
   type StorageConfig,
@@ -21,6 +25,7 @@ export {
   chat,
   testDeepSeek,
   type ChatMessage,
+  type ChatContentPart,
   type ChatResult,
   type ChatOptions,
 } from "./deepseekClient";
