@@ -3,6 +3,7 @@
 import { WorkflowRepository, WorkflowRunRepository } from "../repositories/workflowRepository";
 import { getDb } from "../db/client";
 import type { UpsertWorkflowInput, WorkflowRule, WorkflowRun } from "../../renderer/types";
+import { graphFromLegacy, validateLinearWorkflowGraph } from "../workflow/graph";
 
 export function getAllWorkflows(): WorkflowRule[] {
   return WorkflowRepository.list();
@@ -42,8 +43,30 @@ function validateInput(input: UpsertWorkflowInput): UpsertWorkflowInput {
     if ((action.type === "notify" || action.type === "write_timeline") && !action.config.message?.trim()) {
       throw new Error("通知或时间线动作缺少内容");
     }
+    if (action.type === "agent") {
+      const agent = action.config.agent;
+      if (!agent) throw new Error(`Agent 节点“${action.label}”缺少配置`);
+      if (input.enabled && !agent.modelProfileId) throw new Error(`Agent 节点“${action.label}”尚未选择模型配置`);
+      if (!agent.role.trim() || !agent.prompt.trim()) throw new Error(`Agent 节点“${action.label}”缺少角色或提示词`);
+    }
+    if (action.type === "save_artifact" && !action.config.artifactName?.trim()) {
+      throw new Error(`保存产物节点“${action.label}”缺少产物名称`);
+    }
   }
-  return { ...input, name };
+  const graph = input.graph ?? graphFromLegacy(input);
+  const { orderedNodes } = validateLinearWorkflowGraph(graph);
+  for (const node of orderedNodes) {
+    if (node.type === "agent") {
+      const agent = node.config.agent;
+      if (!agent) throw new Error(`Agent 节点“${node.label}”缺少配置`);
+      if (!agent.role.trim() || !agent.prompt.trim()) throw new Error(`Agent 节点“${node.label}”缺少角色或提示词`);
+      if (input.enabled && !agent.modelProfileId) throw new Error(`Agent 节点“${node.label}”尚未选择模型配置`);
+    }
+    if (node.type === "save_artifact" && !node.config.artifactName?.trim()) {
+      throw new Error(`保存产物节点“${node.label}”缺少产物名称`);
+    }
+  }
+  return { ...input, name, graph };
 }
 
 export function createWorkflow(input: UpsertWorkflowInput): WorkflowRule {
@@ -51,6 +74,8 @@ export function createWorkflow(input: UpsertWorkflowInput): WorkflowRule {
   const workflow: WorkflowRule = {
     id: `wf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     ...valid,
+    graph: valid.graph!,
+    version: 1,
     runs: 0,
     lastRun: null,
     lastStatus: null,
@@ -64,7 +89,7 @@ export function updateWorkflow(id: string, input: UpsertWorkflowInput): Workflow
   const existing = WorkflowRepository.findById(id);
   if (!existing) throw new Error("工作流不存在");
   const valid = validateInput(input);
-  const workflow: WorkflowRule = { ...existing, ...valid, id };
+  const workflow: WorkflowRule = { ...existing, ...valid, graph: valid.graph!, version: existing.version + 1, id };
   WorkflowRepository.insert(workflow);
   return workflow;
 }

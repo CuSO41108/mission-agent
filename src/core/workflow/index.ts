@@ -5,6 +5,8 @@ export {
   registerWorkflowRuntime,
   runDueScheduledWorkflows,
   runWorkflow,
+  resumeWorkflowRun,
   type WorkflowRuntime,
 } from "./WorkflowEngine";
+export { createWorkflowModelRuntime, type WorkflowModelRuntimeOptions } from "./modelNodeRuntime";
 export { emitWorkflowEvent, type WorkflowEvent, type WorkflowTrace } from "./events";

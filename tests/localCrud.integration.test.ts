@@ -34,11 +34,12 @@ import {
   getWorkflowRuns,
   updateWorkflow,
 } from "../src/core/services/workflowService";
-import { dispatchWorkflowEvent, runWorkflow } from "../src/core/workflow/WorkflowEngine";
+import { dispatchWorkflowEvent, registerWorkflowRuntime, resumeWorkflowRun, runWorkflow } from "../src/core/workflow/WorkflowEngine";
 import { runAgentOnce } from "../src/core/agent/AgentService";
 import { AgentRunRepository } from "../src/core/repositories/agentRunRepository";
 import { tick } from "../src/core/workflow/WorkflowService";
 import { AgentRunQueue } from "../src/core/agent/AgentRunQueue";
+import { WorkflowStepRunRepository } from "../src/core/repositories/workflowRepository";
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -511,6 +512,63 @@ test("工作流支持创建、条件触发、自动改状态、编辑、记录�
     assert.equal(deleteWorkflow(workflow.id), true);
     assert.equal(getWorkflowRuns(workflow.id).length, 0);
   } finally {
+    closeDatabase();
+  }
+});
+
+test("工作流使用同一 runId 从 Agent 节点 Checkpoint 断点续跑", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  let attempts = 0;
+  const dispose = registerWorkflowRuntime({
+    runAgent: async () => ({ ok: true, summary: "legacy" }),
+    runAgentNode: async ({ input }) => {
+      attempts += 1;
+      if (attempts === 1) return { ok: false, error: "模拟可恢复的模型错误" };
+      return { ok: true, summary: "恢复成功", output: { version: 1, data: { recovered: true, input: input.data } } };
+    },
+    notify: () => undefined,
+    changed: () => undefined,
+  });
+  try {
+    const folder = createFolder({ name: "Checkpoint 测试", category: "test", priority: "medium", deadline: null, agentEnabled: false });
+    const actionId = "agent-vision";
+    const workflow = createWorkflow({
+      name: "可恢复工作流",
+      enabled: false,
+      trigger: { type: "manual", label: "手动执行", folderId: folder.id },
+      conditions: [],
+      actions: [{
+        id: actionId,
+        type: "agent",
+        label: "识图 Agent",
+        config: {
+          agent: {
+            modelProfileId: "test-model",
+            role: "测试角色",
+            prompt: "测试任务",
+            inputSource: "previous",
+            outputFormat: "json",
+          },
+        },
+      }],
+      layout: [
+        { id: "node-trigger", kind: "trigger", refId: "trigger", x: 0, y: 0 },
+        { id: "node-agent", kind: "action", refId: actionId, x: 180, y: 0 },
+      ],
+    });
+    const failed = await runWorkflow(workflow.id, { type: "manual", folderId: folder.id, timestamp: Date.now() });
+    assert.equal(failed.status, "failed");
+    assert.equal(WorkflowStepRunRepository.find(failed.id, actionId)?.attempts, 1);
+
+    const resumed = await resumeWorkflowRun(failed.id);
+    assert.equal(resumed.id, failed.id);
+    assert.equal(resumed.status, "success");
+    assert.equal(WorkflowStepRunRepository.find(failed.id, actionId)?.attempts, 2);
+    assert.equal(WorkflowStepRunRepository.find(failed.id, actionId)?.output?.data && (WorkflowStepRunRepository.find(failed.id, actionId)!.output!.data as { recovered: boolean }).recovered, true);
+    assert.equal(getWorkflowRuns(workflow.id).length, 1);
+  } finally {
+    dispose();
     closeDatabase();
   }
 });
