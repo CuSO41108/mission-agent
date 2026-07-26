@@ -12,6 +12,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   TaskFolder,
   IntegrationAdapter,
+  IntegrationTarget,
   WorkflowRule,
   Material,
   CreateFolderInput,
@@ -86,6 +87,10 @@ const api = {
     ipcRenderer.invoke("integration:update", id, input) as Promise<IntegrationAdapter>,
   deleteIntegration: (id: string) =>
     ipcRenderer.invoke("integration:delete", id) as Promise<boolean>,
+  getIntegrationTargets: (id: string) =>
+    ipcRenderer.invoke("integration:targets", id) as Promise<IntegrationTarget[]>,
+  testIntegration: (id: string, targetId: string) =>
+    ipcRenderer.invoke("integration:test", id, targetId) as Promise<IntegrationAdapter | null>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
   createWorkflow: (input: UpsertWorkflowInput) =>
     ipcRenderer.invoke("workflow:create", input) as Promise<WorkflowRule>,

@@ -10,6 +10,11 @@ import type {
   UpsertIntegrationInput,
 } from "../../renderer/types";
 import type { StoredIntegrationConfig } from "../repositories/integrationRepository";
+import {
+  applyIntegrationSecrets,
+  deleteIntegrationSecrets,
+  readIntegrationSecrets,
+} from "./integrationSecretStore";
 
 export function getAllIntegrations(): IntegrationAdapter[] {
   return IntegrationRepository.list();
@@ -44,18 +49,36 @@ function validateUrl(value: string, label: string): string {
   return trimmed;
 }
 
-function buildStoredConfig(
-  input: UpsertIntegrationInput,
-  previousSecrets: Partial<Record<IntegrationSecretKey, string>> = {},
-): StoredIntegrationConfig {
-  if (!AUTH_TYPES.includes(input.config.authType)) throw new Error("认证方式无效");
-  const secrets = { ...previousSecrets };
-  for (const [key, value] of Object.entries(input.secrets ?? {}) as Array<
-    [IntegrationSecretKey, string | null]
-  >) {
-    if (value === null) delete secrets[key];
-    else if (value.trim()) secrets[key] = value;
+function normalizeSecretChanges(input: UpsertIntegrationInput): Partial<Record<IntegrationSecretKey, string | null>> {
+  const changes: Partial<Record<IntegrationSecretKey, string | null>> = { ...input.secrets };
+  const legacyWebhook = input.config.webhookUrl.trim();
+  if (legacyWebhook) changes.webhookUrl = legacyWebhook;
+  if (input.config.mode === "feishu_webhook" && typeof changes.webhookUrl === "string" && changes.webhookUrl.trim()) {
+    const value = validateUrl(changes.webhookUrl, "飞书 Webhook URL");
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.hostname !== "open.feishu.cn" || !parsed.pathname.startsWith("/open-apis/bot/v2/hook/")) {
+      throw new Error("飞书 Webhook URL 必须是 open.feishu.cn 的群机器人地址");
+    }
+    changes.webhookUrl = value;
   }
+  return changes;
+}
+
+const SECRET_KEYS: IntegrationSecretKey[] = [
+  "apiKey", "clientId", "clientSecret", "username", "password", "token", "webhookUrl",
+];
+
+function configuredSecrets(secrets: Partial<Record<IntegrationSecretKey, string>>): Record<IntegrationSecretKey, boolean> {
+  return Object.fromEntries(SECRET_KEYS.map((key) => [key, Boolean(secrets[key])])) as Record<IntegrationSecretKey, boolean>;
+}
+
+function buildStoredConfig(input: UpsertIntegrationInput, secrets: Partial<Record<IntegrationSecretKey, string>>): StoredIntegrationConfig {
+  if (!AUTH_TYPES.includes(input.config.authType)) throw new Error("认证方式无效");
+  const targets = (input.config.targets ?? []).slice(0, 20).map((target) => ({
+    id: target.id.trim(),
+    name: target.name.trim(),
+    kind: target.kind,
+  })).filter((target) => target.id && target.name && (target.kind === "chat" || target.kind === "webhook"));
   return {
     provider: input.config.provider.trim(),
     account: input.config.account.trim(),
@@ -64,9 +87,12 @@ function buildStoredConfig(
     imapPort: normalizePort(input.config.imapPort, "IMAP 端口"),
     smtpHost: input.config.smtpHost.trim(),
     smtpPort: normalizePort(input.config.smtpPort, "SMTP 端口"),
-    webhookUrl: validateUrl(input.config.webhookUrl, "Webhook URL"),
+    // Webhook URL 属于可发送外部消息的敏感凭据，只能进入 safeStorage。
+    webhookUrl: "",
     authType: input.config.authType,
-    secrets,
+    mode: input.config.mode ?? "legacy",
+    targets,
+    secretConfigured: configuredSecrets(secrets),
   };
 }
 
@@ -83,6 +109,9 @@ function baseAdapter(id: string, input: UpsertIntegrationInput): IntegrationAdap
     eventsToday: 0,
     config: {
       ...input.config,
+      webhookUrl: "",
+      mode: input.config.mode ?? "legacy",
+      targets: input.config.targets ?? [],
       secretConfigured: {
         apiKey: false,
         clientId: false,
@@ -90,6 +119,7 @@ function baseAdapter(id: string, input: UpsertIntegrationInput): IntegrationAdap
         username: false,
         password: false,
         token: false,
+        webhookUrl: false,
       },
     },
   };
@@ -98,7 +128,9 @@ function baseAdapter(id: string, input: UpsertIntegrationInput): IntegrationAdap
 export function createIntegration(input: UpsertIntegrationInput): IntegrationAdapter {
   const id = `int-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const adapter = baseAdapter(id, input);
-  IntegrationRepository.upsert(adapter, buildStoredConfig(input));
+  const secrets = applyIntegrationSecrets(id, normalizeSecretChanges(input));
+  adapter.config.secretConfigured = configuredSecrets(secrets);
+  IntegrationRepository.upsert(adapter, buildStoredConfig(input, secrets));
   return IntegrationRepository.findById(id)!;
 }
 
@@ -108,15 +140,55 @@ export function updateIntegration(
 ): IntegrationAdapter {
   const existing = IntegrationRepository.findById(id);
   if (!existing) throw new Error("适配器不存在");
-  const stored = IntegrationRepository.getStoredConfig(id);
   const adapter = baseAdapter(id, input);
-  adapter.status = existing.status;
+  const credentialsChanged = Object.values(input.secrets ?? {}).some((value) => value === null || Boolean(value?.trim()));
+  adapter.status = credentialsChanged || input.config.mode !== existing.config.mode
+    ? "disconnected"
+    : existing.status;
   adapter.lastSync = existing.lastSync;
   adapter.eventsToday = existing.eventsToday;
-  IntegrationRepository.upsert(adapter, buildStoredConfig(input, stored?.secrets));
+  const secrets = applyIntegrationSecrets(id, normalizeSecretChanges(input));
+  adapter.config.secretConfigured = configuredSecrets(secrets);
+  IntegrationRepository.upsert(adapter, buildStoredConfig(input, secrets));
   return IntegrationRepository.findById(id)!;
 }
 
 export function deleteIntegration(id: string): boolean {
-  return IntegrationRepository.delete(id);
+  const deleted = IntegrationRepository.delete(id);
+  if (deleted) deleteIntegrationSecrets(id);
+  return deleted;
+}
+
+/** 把旧版 SQLite JSON 中的明文凭据迁入主进程安全存储，并清除原字段。 */
+export function migrateLegacyIntegrationSecrets(decode: (value: string) => string = (value) => value): number {
+  let migrated = 0;
+  for (const { adapter, config } of IntegrationRepository.listStored()) {
+    const legacy = Object.fromEntries(
+      Object.entries(config.secrets ?? {}).map(([key, value]) => [key, decode(value)]),
+    ) as Partial<Record<IntegrationSecretKey, string>>;
+    if (config.webhookUrl) legacy.webhookUrl = config.webhookUrl;
+    if (Object.keys(legacy).length === 0) continue;
+    const secrets = applyIntegrationSecrets(adapter.id, legacy);
+    const sanitized: StoredIntegrationConfig = {
+      ...config,
+      webhookUrl: "",
+      secretConfigured: configuredSecrets(secrets),
+      secrets: undefined,
+    };
+    IntegrationRepository.upsert({
+      ...adapter,
+      config: { ...adapter.config, webhookUrl: "", secretConfigured: sanitized.secretConfigured },
+    }, sanitized);
+    migrated += 1;
+  }
+  return migrated;
+}
+
+export function getIntegrationSecrets(id: string): Partial<Record<IntegrationSecretKey, string>> {
+  if (!IntegrationRepository.findById(id)) throw new Error("适配器不存在");
+  return readIntegrationSecrets(id);
+}
+
+export function setIntegrationStatus(id: string, status: IntegrationAdapter["status"]): void {
+  IntegrationRepository.updateStatus(id, status);
 }

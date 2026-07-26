@@ -13,8 +13,12 @@ export {
   deleteIntegration,
   getAllIntegrations,
   getIntegrationById,
+  getIntegrationSecrets,
+  migrateLegacyIntegrationSecrets,
+  setIntegrationStatus,
   updateIntegration,
 } from "./integrationService";
+export { configureIntegrationSecretStore } from "./integrationSecretStore";
 export {
   createWorkflow,
   deleteWorkflow,

@@ -20,6 +20,7 @@ import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import type { CopilotDraft, TaskFolder, UpsertIntegrationInput, UpsertWorkflowInput, WorkflowRule } from "../renderer/types";
 import { initDatabase, closeDatabase } from "../core/db/client";
 import { migrateDatabase, getSchemaVersion } from "../core/db/migrate";
@@ -54,6 +55,8 @@ import {
   getWorkflowRuns,
   getMaterialAvailability,
   inspectMaterialAvailability,
+  configureIntegrationSecretStore,
+  migrateLegacyIntegrationSecrets,
 } from "../core/services";
 import {
   initConfigFile,
@@ -84,6 +87,13 @@ import { analyzeWithCopilot, draftWithCopilot } from "../core/copilot/copilotSer
 import { AgentRunRepository } from "../core/repositories/agentRunRepository";
 import { WorkflowStepRunRepository } from "../core/repositories/workflowRepository";
 import { agentRunQueue } from "../core/agent";
+import { createIntegrationSecretVault } from "./integrationSecretVault";
+import {
+  listFeishuTargets,
+  renderIntegrationTemplate,
+  sendFeishuText,
+  testFeishuConnection,
+} from "../core/integrations/feishuConnector";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -199,25 +209,6 @@ function publicConfig(config: AppConfig): AppConfig {
 
 function persistConfig(config: AppConfig): void {
   saveConfig(configPath(), publicConfig(config));
-}
-
-function protectIntegrationSecrets(input: UpsertIntegrationInput): UpsertIntegrationInput {
-  const secrets = input.secrets;
-  if (!secrets) return input;
-  const protectedSecrets: UpsertIntegrationInput["secrets"] = {};
-  for (const [key, value] of Object.entries(secrets)) {
-    if (value === null) {
-      protectedSecrets[key as keyof NonNullable<UpsertIntegrationInput["secrets"]>] = null;
-      continue;
-    }
-    if (!value.trim()) continue;
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error("系统安全存储暂不可用，凭据未保存");
-    }
-    protectedSecrets[key as keyof NonNullable<UpsertIntegrationInput["secrets"]>] =
-      safeStorage.encryptString(value).toString("base64");
-  }
-  return { ...input, secrets: protectedSecrets };
 }
 
 // ============ 应用标识 ============
@@ -473,6 +464,26 @@ function assertWorkflowModelsReady(workflow: UpsertWorkflowInput | WorkflowRule)
       throw new Error(`模型“${profile.name}”不支持图片输入，请更换模型配置`);
     }
   }
+
+  const integrationNodes = [
+    ...workflow.actions.filter((action) => action.type === "send_feishu_message").map((action) => ({ id: action.id, label: action.label, config: action.config })),
+    ...(workflow.graph?.nodes ?? []).filter((node) => node.type === "send_feishu_message").map((node) => ({ id: node.id, label: node.label, config: node.config })),
+  ];
+  const integrations = new Map(getAllIntegrations().map((integration) => [integration.id, integration]));
+  const seenIntegrationNodes = new Set<string>();
+  for (const node of integrationNodes) {
+    if (seenIntegrationNodes.has(node.id)) continue;
+    seenIntegrationNodes.add(node.id);
+    const integrationId = node.config.integrationId;
+    const targetId = node.config.integrationTargetId;
+    const integration = integrationId ? integrations.get(integrationId) : null;
+    if (!integration) throw new Error(`飞书节点“${node.label}”尚未选择有效适配器`);
+    if (integration.status !== "connected") throw new Error(`飞书适配器“${integration.name}”尚未通过测试连接`);
+    if (!targetId || !integration.config.targets.some((target) => target.id === targetId)) {
+      throw new Error(`飞书节点“${node.label}”尚未选择授权目标群`);
+    }
+    if (!node.config.messageTemplate?.trim()) throw new Error(`飞书节点“${node.label}”缺少消息模板`);
+  }
 }
 
 type UpdateCheck = {
@@ -561,12 +572,17 @@ function registerIpc(): void {
   // 接口适配器
   ipcMain.handle("integration:list", () => getAllIntegrations());
   ipcMain.handle("integration:create", (_e, input: UpsertIntegrationInput) =>
-    createIntegration(protectIntegrationSecrets(input)),
+    createIntegration(input),
   );
   ipcMain.handle("integration:update", (_e, id: string, input: UpsertIntegrationInput) =>
-    updateIntegration(id, protectIntegrationSecrets(input)),
+    updateIntegration(id, input),
   );
   ipcMain.handle("integration:delete", (_e, id: string) => deleteIntegration(id));
+  ipcMain.handle("integration:targets", (_e, id: string) => listFeishuTargets(id));
+  ipcMain.handle("integration:test", async (_e, id: string, targetId: string) => {
+    await testFeishuConnection(id, targetId);
+    return getAllIntegrations().find((item) => item.id === id) ?? null;
+  });
 
   // 工作流
   ipcMain.handle("workflow:list", () => getAllWorkflows());
@@ -843,7 +859,20 @@ function initAppDatabase(): void {
 
 // ============ 应用生命周期 ============
 app.whenReady().then(() => {
+  configureIntegrationSecretStore(createIntegrationSecretVault(
+    path.join(app.getPath("userData"), "integration-secrets.secret"),
+  ));
   initAppDatabase();
+  const migratedIntegrationSecrets = migrateLegacyIntegrationSecrets((value) => {
+    try {
+      return safeStorage.decryptString(Buffer.from(value, "base64"));
+    } catch {
+      return value;
+    }
+  });
+  if (migratedIntegrationSecrets > 0) {
+    console.log(`[integration] 已将 ${migratedIntegrationSecrets} 个适配器的旧凭据迁入系统安全存储`);
+  }
   initAppConfig();
   createWindow();
   if (getConfig().system.trayIcon) createTray();
@@ -920,6 +949,22 @@ app.whenReady().then(() => {
       if (!mainWindow) return { ok: false, error: "主窗口尚未初始化" };
       const result = await runFolderOnce(getConfig, mainWindow, folderId, "workflow");
       return { ok: result.ok, summary: result.summary, error: result.error };
+    },
+    sendIntegrationMessage: async ({ node, input, idempotencyKey }) => {
+      const integrationId = node.config.integrationId?.trim();
+      const targetId = node.config.integrationTargetId?.trim();
+      const template = node.config.messageTemplate?.trim();
+      if (!integrationId) throw new Error("飞书消息节点尚未选择适配器");
+      if (!targetId) throw new Error("飞书消息节点尚未选择授权目标群");
+      if (!template) throw new Error("飞书消息节点缺少消息模板");
+      const message = renderIntegrationTemplate(template, input);
+      await sendFeishuText({ integrationId, targetId, text: message, idempotencyKey });
+      return {
+        integrationId,
+        targetId,
+        messageLength: message.length,
+        messageHash: createHash("sha256").update(message).digest("hex"),
+      };
     },
     notify: (payload) => {
       if (!mainWindow?.isDestroyed()) {

@@ -17,6 +17,7 @@ const SECRET_KEYS: IntegrationSecretKey[] = [
   "username",
   "password",
   "token",
+  "webhookUrl",
 ];
 
 export interface StoredIntegrationConfig {
@@ -29,7 +30,11 @@ export interface StoredIntegrationConfig {
   smtpPort: number | null;
   webhookUrl: string;
   authType: IntegrationAuthType;
-  secrets: Partial<Record<IntegrationSecretKey, string>>;
+  mode: IntegrationAdapter["config"]["mode"];
+  targets: IntegrationAdapter["config"]["targets"];
+  secretConfigured: Record<IntegrationSecretKey, boolean>;
+  /** 仅用于从旧版本迁移；新写入绝不能包含此字段。 */
+  secrets?: Partial<Record<IntegrationSecretKey, string>>;
 }
 
 const EMPTY_STORED_CONFIG: StoredIntegrationConfig = {
@@ -42,20 +47,28 @@ const EMPTY_STORED_CONFIG: StoredIntegrationConfig = {
   smtpPort: null,
   webhookUrl: "",
   authType: "none",
-  secrets: {},
+  mode: "legacy",
+  targets: [],
+  secretConfigured: Object.fromEntries(SECRET_KEYS.map((key) => [key, false])) as Record<IntegrationSecretKey, boolean>,
 };
 
 function parseStoredConfig(value: unknown): StoredIntegrationConfig {
-  if (!value) return { ...EMPTY_STORED_CONFIG, secrets: {} };
+  if (!value) return { ...EMPTY_STORED_CONFIG, targets: [], secretConfigured: { ...EMPTY_STORED_CONFIG.secretConfigured } };
   try {
     const parsed = JSON.parse(String(value)) as Partial<StoredIntegrationConfig>;
     return {
       ...EMPTY_STORED_CONFIG,
       ...parsed,
-      secrets: parsed.secrets ?? {},
+      targets: Array.isArray(parsed.targets) ? parsed.targets : [],
+      secretConfigured: {
+        ...EMPTY_STORED_CONFIG.secretConfigured,
+        ...parsed.secretConfigured,
+        ...Object.fromEntries(SECRET_KEYS.map((key) => [key, Boolean(parsed.secrets?.[key]) || Boolean(parsed.secretConfigured?.[key])])),
+      },
+      secrets: parsed.secrets,
     };
   } catch {
-    return { ...EMPTY_STORED_CONFIG, secrets: {} };
+    return { ...EMPTY_STORED_CONFIG, targets: [], secretConfigured: { ...EMPTY_STORED_CONFIG.secretConfigured } };
   }
 }
 
@@ -79,9 +92,9 @@ export function mapIntegration(row: DbRow): IntegrationAdapter {
       smtpPort: config.smtpPort,
       webhookUrl: config.webhookUrl,
       authType: config.authType,
-      secretConfigured: Object.fromEntries(
-        SECRET_KEYS.map((key) => [key, Boolean(config.secrets[key])]),
-      ) as Record<IntegrationSecretKey, boolean>,
+      mode: config.mode,
+      targets: config.targets,
+      secretConfigured: { ...config.secretConfigured },
     },
   };
 }
@@ -107,6 +120,12 @@ export const IntegrationRepository = {
     return row ? parseStoredConfig(row.config) : null;
   },
 
+  listStored(): Array<{ adapter: IntegrationAdapter; config: StoredIntegrationConfig }> {
+    const db = getDb();
+    const rows = db.prepare("SELECT * FROM integrations ORDER BY name;").all() as DbRow[];
+    return rows.map((row) => ({ adapter: mapIntegration(row), config: parseStoredConfig(row.config) }));
+  },
+
   upsert(integration: IntegrationAdapter, config: StoredIntegrationConfig): void {
     const db = getDb();
     db.prepare(
@@ -128,6 +147,13 @@ export const IntegrationRepository = {
   updateStatus(id: string, status: IntegrationStatus): void {
     const db = getDb();
     db.prepare("UPDATE integrations SET status = ? WHERE id = ?;").run(status, id);
+  },
+
+  recordSuccessfulEvent(id: string, timestamp = Date.now()): void {
+    const db = getDb();
+    db.prepare(
+      "UPDATE integrations SET status = 'connected', last_sync = ?, events_today = events_today + 1 WHERE id = ?;",
+    ).run(timestamp, id);
   },
 
   delete(id: string): boolean {
