@@ -18,7 +18,7 @@
 
 Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同一处管理待办、材料、时间线与 Agent 配置。定时调度器只扫描处于活动状态且已启用 Agent 的任务舱；配置任意 OpenAI 兼容模型 API 后，可按设定间隔（默认每小时）或手动发起巡检。Agent Run 会先写入本地持久化队列，在并发额度与资源锁可用后自动执行；不同任务舱可受控并行（默认 2、可调 1–4），同一任务舱当前保持互斥。业务数据保存在本地 SQLite，普通应用配置保存在本地 YAML，模型 API Key 由 Electron `safeStorage` 加密保存。
 
-## ✨ Features
+## Features
 
 - **任务舱架构** — 每类任务一个舱，集中管理待办、材料、时间线、Agent 配置
 - **本地材料管理** — 通过系统文件选择器添加引用，可打开或移除引用，不删除磁盘原文件
@@ -30,12 +30,12 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
 - **OpenAI 兼容模型** — DeepSeek 只是默认配置示例，Base URL 与模型名均可更换为其他兼容服务
 - **可执行工作流** — 支持创建、编辑、删除、启停、手动/定时/事件触发、拖拽节点、条件判断、运行记录与循环保护
 - **适配器注册表** — 可维护服务商、地址、端口与认证信息；敏感字段由 Electron `safeStorage` 加密后落库
+- **飞书消息节点（实验性）** — 支持群机器人 Webhook 与企业自建应用；仅可向完成连接测试并明确授权的目标群发送纯文本消息
 - **本地优先** — 业务数据存 `node:sqlite`，应用配置存 YAML，本地文件默认采用引用模式
-- **浅色生产力界面** — 冷灰白中性基底 + 克制产品蓝，细描边与轻阴影，全局快捷键唤起，托盘常驻
 
-> 当前适配器仅完成本地注册和配置管理，Gmail、飞书、Webhook 等第三方连接运行时尚未接入，因此不会作为可执行工作流节点出现。
+> 飞书消息连接器现已可作为工作流节点：需先完成连接测试，并在配置向导中授权目标群。Gmail、通用 Webhook 等其他第三方连接运行时尚未接入，因此不会作为可执行工作流节点出现。
 
-## 🖼 Screenshots
+## Screenshots
 
 ### 任务舱
 
@@ -43,19 +43,27 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
   <img src="./docs/screenshots/folders.png" alt="任务舱列表与状态筛选" width="1000">
 </p>
 
-### 接口与工作流
+### 集成
 
 <p align="center">
   <img src="./docs/screenshots/integrations.png" alt="适配器注册与本地配置管理" width="1000">
 </p>
 
-<p align="center"><sub>截图中的服务均为本地配置示例，未表示第三方运行时已经连接。</sub></p>
+<p align="center"><sub>飞书连接器须完成测试并授权目标群后，才可被工作流调用。</sub></p>
+
+### 工作流概览
 
 <p align="center">
   <img src="./docs/screenshots/workflow.png" alt="工作流规则视图与编排画布" width="1000">
 </p>
 
-<p align="center"><sub>当前 V1 提供本地触发器、条件和动作；第三方节点将在对应运行时接入后开放。</sub></p>
+<p align="center"><sub>支持本地触发器、条件和动作；飞书消息节点需关联已验证的飞书适配器。</sub></p>
+
+### 工作流详情
+
+<p align="center">
+  <img src="./docs/screenshots/workflow-detail.png" alt="工作流画布、节点配置与输入输出设置" width="1000">
+</p>
 
 ### Agent 控制台
 
@@ -65,7 +73,7 @@ Mission Console 把每一类任务装进一个**任务舱（Folder）**，在同
 
 <p align="center"><sub>Agent 执行结果会通过主进程事件通知渲染层重新读取 SQLite，数据库是唯一业务真相。</sub></p>
 
-## 🚀 Quickstart
+## Quickstart
 
 ### 环境要求
 
@@ -89,13 +97,6 @@ npm install -g .
 mission-console
 ```
 
-普通用户不需要克隆仓库。Node.js 22.13+ 安装后，使用 GitHub Release 的最新构建：
-
-```powershell
-npm install -g https://github.com/CuSO41108/mission-agent/releases/latest/download/mission-console.tgz
-mission-console
-```
-
 日常使用只需执行 `mission-console`。可用 `mission-console --check-update` 查看版本，或以 `mission-console --update` 下载、校验 SHA-256、安装并重新启动最新版；应用内的 **设置 → 应用更新** 提供相同功能。全局命令由当前 Node.js 的 npm 管理；如使用 nvm，请在安装应用的同一个 Node 版本下运行命令。
 
 关闭主窗口后应用会留在托盘。按 **Ctrl+Alt+Space**（macOS：Option+Space）可再次唤起，彻底退出请使用托盘菜单。
@@ -106,11 +107,11 @@ mission-console
 2. **模型配置**：填写 OpenAI 兼容 API 的 Base URL、模型名与 API Key；DeepSeek 是默认示例，不是必选项
 3. **心跳调度**：调整间隔（默认 60 分钟，可设为 5–1440 分钟）→ 开启全局开关
 4. **仓库目录**：设置文件归档目录（可选，默认引用模式不复制）
-5. **适配器配置**：按需登记服务地址和认证信息；当前仅保存配置，不会连接第三方服务
+5. **飞书消息**：在“集成”中创建飞书适配器，选择群机器人 Webhook 或企业自建应用，授权目标群并完成连接测试；测试会发送一条真实消息，保存配置本身不会发送
 
 模型 API Key 会从旧版 YAML 自动迁移至 Electron `safeStorage` 加密文件，渲染进程只能看到“已配置”状态，无法读取完整 Key。设置页留空表示保留现有 Key，只有输入新值才会覆盖。点击“测试连接”会产生一次真实 API 请求；运行 Agent 时，启用“读取”权限的任务舱上下文及任务需要的本地文本材料会发送到所配置的模型服务，请根据数据敏感度决定是否启用。
 
-## 🧱 Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -123,6 +124,7 @@ flowchart LR
   Queue --> SQLite
   Queue --> Model
   Main --> Workflow[工作流运行时]
+  Workflow --> Feishu[飞书消息 API]
   Main --> SafeStorage[系统安全存储]
   Scheduler --> Core
   SafeStorage --> Secrets[加密凭据文件]
@@ -134,12 +136,12 @@ flowchart LR
 - **数据层**：`node:sqlite` 嵌入式 SQLite，11 张业务表 + `schema_version`，包含 Agent Run 与资源租约记录
 - **配置层**：普通应用配置存入 `userData/config.yaml`；模型 Key 与适配器敏感字段先经系统安全存储加密，渲染层只获取配置状态
 - **调度层**：心跳或手动操作先创建持久化 Run，Worker 按 FIFO 扫描并跳过资源冲突项；资源释放、Run 结束、配置变化或应用启动都会立即再次泵队列。Agent 与 Copilot 调用同一模型时共享并发额度
-- **适配器层**：本地注册、编辑、删除和凭据状态已完成；各服务商运行时待后续实现
-- **工作流层**：独立事件总线与定时轮询驱动本地节点，支持修改任务舱状态、创建待办、运行 Agent、写时间线和应用内通知
+- **适配器层**：飞书消息连接器支持群机器人 Webhook 与企业自建应用，凭据存入 Electron `safeStorage` 加密的本地文件；Gmail、通用 Webhook 等其他服务商运行时待后续实现
+- **工作流层**：独立事件总线与定时轮询驱动本地节点，支持修改任务舱状态、创建待办、运行 Agent、写时间线、应用内通知和向已授权的飞书目标群发送消息
 
 详细架构图、Schema、IPC 链路见 [TechnicalArchitecture.md](.trae/documents/TechnicalArchitecture.md)
 
-## 🗂 Project Structure
+## Project Structure
 
 ```
 src/
@@ -154,10 +156,10 @@ src/
     └── workflow/  # 工作流引擎、事件总线与心跳巡检策略
 ```
 
-## 📄 License
+## License
 
 MIT License © 2026 CuSO41108
 
 ---
 
-有任何问题，请提交 issue。如果觉得我们的项目还不错，欢迎 star ✨。也欢迎 PR。
+有任何问题，请提交 issue。如果觉得我们的项目还不错，欢迎 star。也欢迎 PR。
