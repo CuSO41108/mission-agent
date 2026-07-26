@@ -41,6 +41,7 @@ import {
   deleteFolder,
   setFolderStatus,
   toggleTodo,
+  updateTodoAssignment,
   addMaterial,
   updateNoteMaterial,
   deleteMaterial,
@@ -669,6 +670,12 @@ function registerIpc(): void {
   ipcMain.handle("material:delete", (_e, folderId: string, materialId: string) =>
     deleteMaterial(folderId, materialId),
   );
+  ipcMain.handle(
+    "todo:updateAssignment",
+    (_e, folderId: string, todoId: string, input: Parameters<typeof updateTodoAssignment>[2]) =>
+      updateTodoAssignment(folderId, todoId, input),
+  );
+
   ipcMain.handle("file:pickMaterial", async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
       title: "选择要引用的材料文件",

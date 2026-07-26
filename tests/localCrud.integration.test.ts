@@ -25,6 +25,7 @@ import {
   setFolderStatus,
   toggleAgent,
   toggleTodo,
+  updateTodoAssignment,
   updateAgentConfig,
   updateNoteMaterial,
 } from "../src/core/services/mutationService";
@@ -569,6 +570,43 @@ test("工作流使用同一 runId 从 Agent 节点 Checkpoint 断点续跑", asy
     assert.equal(getWorkflowRuns(workflow.id).length, 1);
   } finally {
     dispose();
+    closeDatabase();
+  }
+});
+
+test("待办可在 Human 与 Agent 之间显式转交并保存执行方式", () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  try {
+    const folder = createFolder({
+      name: "负责人转交测试",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: true,
+    });
+    const created = createTodo(folder.id, {
+      title: "整理发布文案",
+      dueDate: null,
+      assignee: "human",
+    });
+    const todoId = created.todos[0].id;
+
+    const assignedToAgent = updateTodoAssignment(folder.id, todoId, {
+      assignee: "agent",
+      agentTaskType: "artifact",
+      artifactFormat: "markdown",
+    });
+    assert.equal(assignedToAgent.todos[0].assignee, "agent");
+    assert.equal(assignedToAgent.todos[0].agentTaskType, "artifact");
+    assert.equal(assignedToAgent.todos[0].artifactFormat, "markdown");
+    assert.ok(assignedToAgent.timeline.some((entry) => /转交 Agent/.test(entry.action)));
+
+    const returnedToHuman = updateTodoAssignment(folder.id, todoId, { assignee: "human" });
+    assert.equal(returnedToHuman.todos[0].assignee, "human");
+    assert.equal(returnedToHuman.todos[0].workflowId, null);
+    assert.ok(returnedToHuman.timeline.some((entry) => /Human/.test(entry.action)));
+  } finally {
     closeDatabase();
   }
 });

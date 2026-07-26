@@ -10,6 +10,7 @@ import type {
   AgentNotification,
   CreateFolderInput,
   CreateTodoInput,
+  UpdateTodoAssignmentInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   UpsertWorkflowInput,
@@ -40,6 +41,7 @@ interface MissionState {
   deleteFolder: (folderId: string) => Promise<boolean>;
   createTodo: (folderId: string, input: CreateTodoInput) => Promise<TaskFolder>;
   toggleTodo: (folderId: string, todoId: string) => Promise<void>;
+  updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) => Promise<void>;
   toggleAgent: (folderId: string) => Promise<void>;
   updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) => Promise<TaskFolder>;
   runAgentOnce: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
@@ -297,6 +299,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const newDone = target ? !target.done : false;
 
     const updated = await window.missionConsole.toggleTodo(folderId, todoId, newDone);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
+    }));
+  },
+
+  updateTodoAssignment: async (folderId, todoId, input) => {
+    const updated = await window.missionConsole.updateTodoAssignment(folderId, todoId, input);
     set((state) => ({
       folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
     }));

@@ -44,6 +44,13 @@ export interface CreateTodoInput {
   workflowId?: string | null;
 }
 
+export interface UpdateTodoAssignmentInput {
+  assignee: Assignee;
+  agentTaskType?: AgentTaskType;
+  artifactFormat?: ArtifactFormat;
+  workflowId?: string | null;
+}
+
 export interface Material {
   id: string;
   folderId: string;

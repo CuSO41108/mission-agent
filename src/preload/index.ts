@@ -16,6 +16,7 @@ import type {
   Material,
   CreateFolderInput,
   CreateTodoInput,
+  UpdateTodoAssignmentInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   FolderStatus,
@@ -109,6 +110,8 @@ const api = {
     ipcRenderer.invoke("todo:create", folderId, input) as Promise<TaskFolder>,
   toggleTodo: (folderId: string, todoId: string, done: boolean) =>
     ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<TaskFolder>,
+  updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) =>
+    ipcRenderer.invoke("todo:updateAssignment", folderId, todoId, input) as Promise<TaskFolder>,
   // 添加材料
   addMaterial: (
     folderId: string,

@@ -26,6 +26,7 @@ export {
   deleteFolder,
   setFolderStatus,
   toggleTodo,
+  updateTodoAssignment,
   addMaterial,
   updateNoteMaterial,
   deleteMaterial,
