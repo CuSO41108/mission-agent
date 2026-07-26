@@ -156,7 +156,7 @@ function parseFolderDraft(raw: Record<string, unknown>): CopilotDraft {
 
 function parseWorkflowActions(value: unknown): WorkflowAction[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error("工作流草稿至少需要一个动作");
-  const allowed = new Set<WorkflowActionType>(["create_todo", "write_timeline", "notify", "agent", "save_artifact"]);
+  const allowed = new Set<WorkflowActionType>(["create_todo", "write_timeline", "notify", "agent", "save_artifact", "send_feishu_message"]);
   return value.slice(0, 6).map((item, index) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`第 ${index + 1} 个工作流动作格式无效`);
     const action = item as Record<string, unknown>;
@@ -208,6 +208,18 @@ function parseWorkflowActions(value: unknown): WorkflowAction[] {
         config: {
           artifactName: stringField(action.artifactName, `第 ${index + 1} 个产物名称`, 100),
           artifactFormat: format,
+        },
+      };
+    }
+    if (actionType === "send_feishu_message") {
+      return {
+        id,
+        type: actionType,
+        label: truncate(typeof action.label === "string" ? action.label : "发送飞书消息", 100),
+        config: {
+          integrationId: typeof action.integrationId === "string" && action.integrationId.trim() ? action.integrationId.trim() : null,
+          integrationTargetId: typeof action.integrationTargetId === "string" && action.integrationTargetId.trim() ? action.integrationTargetId.trim() : null,
+          messageTemplate: stringField(action.messageTemplate, `第 ${index + 1} 个飞书节点消息模板`, 2_000),
         },
       };
     }
@@ -302,6 +314,7 @@ export async function draftWithCopilot(
             "工作流格式：{\"kind\":\"workflow\",\"summary\":\"...\",\"name\":\"...\",\"actions\":[动作...]}。动作按数组顺序组成单链路数据流，不得分支或循环。",
             "Agent 动作格式：{\"type\":\"agent\",\"label\":\"...\",\"modelProfileId\":\"从模型目录选择；没有合适模型则为 null\",\"role\":\"...\",\"prompt\":\"...\",\"inputSource\":\"previous|trigger_materials|folder_images|selected_materials\",\"outputFormat\":\"json|markdown|text\",\"outputSchema\":{}}。中间 Agent 默认输出 JSON。",
             "保存产物动作格式：{\"type\":\"save_artifact\",\"label\":\"保存产物\",\"artifactName\":\"...\",\"format\":\"markdown|json|text\"}。另可使用 create_todo、write_timeline、notify。",
+            "飞书消息动作格式：{\"type\":\"send_feishu_message\",\"label\":\"发送飞书消息\",\"integrationId\":null,\"integrationTargetId\":null,\"messageTemplate\":\"...\"}。除非上下文明确提供了适配器和目标 ID，否则必须保留 null 让用户在画布配置。",
             "工作流固定为禁用的手动草稿；不得生成旧版 run_agent、修改状态、删除、归档、外部集成或定时触发动作。绝不自行补造模型配置 ID。",
             "如果提供了当前草稿，应按用户的新指令修改它并返回完整的新草稿。",
           ].join("\n"),
