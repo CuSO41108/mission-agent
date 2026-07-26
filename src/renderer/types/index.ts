@@ -10,6 +10,7 @@ export type AgentTaskType =
   | "artifact"
   | "follow_up"
   | "material_organize"
+  | "material_audit"
   | "progress_summary"
   | "workflow";
 export type ArtifactFormat = "markdown" | "text" | "json";
@@ -39,6 +40,13 @@ export interface CreateTodoInput {
   assignee: Assignee;
   parentId?: string | null;
   source?: string;
+  agentTaskType?: AgentTaskType;
+  artifactFormat?: ArtifactFormat;
+  workflowId?: string | null;
+}
+
+export interface UpdateTodoAssignmentInput {
+  assignee: Assignee;
   agentTaskType?: AgentTaskType;
   artifactFormat?: ArtifactFormat;
   workflowId?: string | null;
@@ -115,13 +123,21 @@ export type IntegrationType =
   | "custom";
 export type IntegrationStatus = "connected" | "disconnected" | "error" | "beta";
 export type IntegrationAuthType = "none" | "api_key" | "oauth2" | "basic" | "webhook";
+export type IntegrationMode = "legacy" | "feishu_webhook" | "feishu_app";
 export type IntegrationSecretKey =
   | "apiKey"
   | "clientId"
   | "clientSecret"
   | "username"
   | "password"
-  | "token";
+  | "token"
+  | "webhookUrl";
+
+export interface IntegrationTarget {
+  id: string;
+  name: string;
+  kind: "chat" | "webhook";
+}
 
 export interface IntegrationConnectionConfig {
   provider: string;
@@ -133,6 +149,8 @@ export interface IntegrationConnectionConfig {
   smtpPort: number | null;
   webhookUrl: string;
   authType: IntegrationAuthType;
+  mode: IntegrationMode;
+  targets: IntegrationTarget[];
   secretConfigured: Record<IntegrationSecretKey, boolean>;
 }
 
@@ -178,6 +196,7 @@ export type WorkflowActionType =
   | "run_agent"
   | "write_timeline"
   | "notify"
+  | "send_feishu_message"
   | "save_artifact";
 
 export interface WorkflowTrigger {
@@ -207,6 +226,9 @@ export interface WorkflowAction {
     agent?: WorkflowAgentNodeConfig;
     artifactName?: string;
     artifactFormat?: ArtifactFormat;
+    integrationId?: string | null;
+    integrationTargetId?: string | null;
+    messageTemplate?: string;
   };
 }
 
@@ -231,6 +253,7 @@ export type WorkflowGraphNodeType =
   | "set_folder_status"
   | "write_timeline"
   | "notify"
+  | "send_feishu_message"
   | "save_artifact";
 
 export interface WorkflowAgentNodeConfig {

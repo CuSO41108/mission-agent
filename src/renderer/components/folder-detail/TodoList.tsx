@@ -27,6 +27,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
   const { text: translate } = usePreferences();
   const toggle = useMissionStore((s) => s.toggleTodo);
   const createTodo = useMissionStore((s) => s.createTodo);
+  const updateTodoAssignment = useMissionStore((s) => s.updateTodoAssignment);
   const workflows = useMissionStore((s) => s.workflows);
   const [expanded, setExpanded] = useState<Set<string>>(new Set([todos[0]?.id]));
   const [adding, setAdding] = useState(false);
@@ -37,6 +38,12 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
   const [artifactFormat, setArtifactFormat] = useState<ArtifactFormat>("markdown");
   const [workflowId, setWorkflowId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [assignmentTodoId, setAssignmentTodoId] = useState<string | null>(null);
+  const [assignmentAssignee, setAssignmentAssignee] = useState<Assignee>("human");
+  const [assignmentTaskType, setAssignmentTaskType] = useState<AgentTaskType>("analysis");
+  const [assignmentArtifactFormat, setAssignmentArtifactFormat] = useState<ArtifactFormat>("markdown");
+  const [assignmentWorkflowId, setAssignmentWorkflowId] = useState("");
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [error, setError] = useState("");
 
   const submitTodo = async () => {
@@ -79,6 +86,44 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
     });
   };
 
+  const openAssignmentEditor = (todo: Todo) => {
+    if (assignmentTodoId === todo.id) {
+      setAssignmentTodoId(null);
+      return;
+    }
+    setAssignmentTodoId(todo.id);
+    setAssignmentAssignee(todo.assignee);
+    setAssignmentTaskType(todo.agentTaskType ?? "analysis");
+    setAssignmentArtifactFormat(todo.artifactFormat ?? "markdown");
+    setAssignmentWorkflowId(todo.workflowId ?? "");
+    setError("");
+  };
+
+  const saveAssignment = async (todo: Todo) => {
+    if (assignmentSaving) return;
+    if (assignmentAssignee === "agent" && assignmentTaskType === "workflow" && !assignmentWorkflowId) {
+      setError(translate("请先选择工作流", "Select a workflow first"));
+      return;
+    }
+    setAssignmentSaving(true);
+    setError("");
+    try {
+      await updateTodoAssignment(folderId, todo.id, {
+        assignee: assignmentAssignee,
+        agentTaskType: assignmentAssignee === "agent" ? assignmentTaskType : undefined,
+        artifactFormat: assignmentAssignee === "agent" ? assignmentArtifactFormat : undefined,
+        workflowId: assignmentAssignee === "agent" && assignmentTaskType === "workflow"
+          ? assignmentWorkflowId
+          : null,
+      });
+      setAssignmentTodoId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
   const renderTodo = (t: Todo, depth = 0) => {
     const hasSubs = t.subtasks.length > 0;
     const isExpanded = expanded.has(t.id);
@@ -114,9 +159,13 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
               >
                 {t.title}
               </span>
-              <span
+              <button
+                type="button"
+                onClick={() => openAssignmentEditor(t)}
+                aria-expanded={assignmentTodoId === t.id}
+                title={translate("修改负责人", "Change assignee")}
                 className={cn(
-                  "chip border text-[9px]",
+                  "chip border text-[9px] hover:brightness-125 transition-all",
                   t.assignee === "agent"
                     ? "border-phosphor-400/40 text-phosphor-400 bg-phosphor-400/5"
                     : "border-amber-500/40 text-amber-400 bg-amber-500/5"
@@ -128,7 +177,8 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                   <User className="w-2.5 h-2.5" strokeWidth={1.5} />
                 )}
                 {t.assignee === "agent" ? "AGENT" : "HUMAN"}
-              </span>
+                <ChevronRight className={cn("w-2.5 h-2.5 transition-transform", assignmentTodoId === t.id && "rotate-90")} strokeWidth={1.5} />
+              </button>
             </div>
             <div className="flex items-center gap-3 mt-1 text-[9px] data-mono text-ink-faint">
               {t.dueDate && (
@@ -151,6 +201,60 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                 </button>
               )}
             </div>
+            {assignmentTodoId === t.id && (
+              <div className="mt-2.5 border border-phosphor-400/20 bg-obsidian-950/35 p-2.5 space-y-2.5">
+                <p className="text-[9px] data-mono uppercase tracking-wider text-phosphor-400">
+                  {translate("转交设置", "Assignment")}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select value={assignmentAssignee} onChange={(event) => setAssignmentAssignee(event.target.value as Assignee)} className="input w-full">
+                    <option value="human">{translate("由 Human 处理", "Assign to Human")}</option>
+                    <option value="agent">{translate("转交给 Agent", "Assign to Agent")}</option>
+                  </select>
+                  {assignmentAssignee === "agent" && (
+                    <select value={assignmentTaskType} onChange={(event) => setAssignmentTaskType(event.target.value as AgentTaskType)} className="input w-full">
+                      <option value="analysis">{translate("分析建议（不自动完成）", "Analysis (does not auto-complete)")}</option>
+                      <option value="artifact">{translate("生成本地产物", "Create local artifact")}</option>
+                      <option value="follow_up">{translate("应用内跟进提醒", "In-app follow-up")}</option>
+                      <option value="material_organize">{translate("整理本地材料", "Organize local materials")}</option>
+                      <option value="material_audit">{translate("巡检失效材料引用", "Audit unavailable material references")}</option>
+                      <option value="progress_summary">{translate("生成进度摘要", "Create progress summary")}</option>
+                      <option value="workflow">{translate("执行工作流", "Run workflow")}</option>
+                    </select>
+                  )}
+                  {assignmentAssignee === "agent" && (["artifact", "material_organize", "progress_summary"] as AgentTaskType[]).includes(assignmentTaskType) && (
+                    <select value={assignmentArtifactFormat} onChange={(event) => setAssignmentArtifactFormat(event.target.value as ArtifactFormat)} className="input w-full">
+                      <option value="markdown">Markdown</option>
+                      <option value="text">{translate("纯文本", "Plain text")}</option>
+                      <option value="json">JSON</option>
+                    </select>
+                  )}
+                  {assignmentAssignee === "agent" && assignmentTaskType === "workflow" && (
+                    <select value={assignmentWorkflowId} onChange={(event) => setAssignmentWorkflowId(event.target.value)} className="input w-full">
+                      <option value="">{translate("选择工作流", "Select workflow")}</option>
+                      {workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name}</option>)}
+                    </select>
+                  )}
+                </div>
+                {assignmentAssignee === "agent" && (
+                  <p className="text-[9px] leading-relaxed text-ink-faint">
+                    {translate(
+                      "确认后只会改变负责人和执行方式，不会立即运行；Agent 将按任务舱的启用状态和调度规则处理该待办。",
+                      "This changes the assignee and execution mode without running immediately. The folder's Agent schedule controls execution.",
+                    )}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => { setAssignmentTodoId(null); setError(""); }} className="btn-ghost">
+                    <X className="w-3 h-3" /> {translate("取消", "Cancel")}
+                  </button>
+                  <button type="button" onClick={() => void saveAssignment(t)} disabled={assignmentSaving} className="btn-phosphor disabled:opacity-40">
+                    {assignmentSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                    {translate("确认转交", "Confirm")}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         {hasSubs && isExpanded && (
@@ -213,6 +317,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                   <option value="artifact">{translate("生成本地产物", "Create local artifact")}</option>
                   <option value="follow_up">{translate("应用内跟进提醒", "In-app follow-up")}</option>
                   <option value="material_organize">{translate("整理本地材料", "Organize local materials")}</option>
+                  <option value="material_audit">{translate("巡检失效材料引用", "Audit unavailable material references")}</option>
                   <option value="progress_summary">{translate("生成进度摘要", "Create progress summary")}</option>
                   <option value="workflow">{translate("执行工作流", "Run workflow")}</option>
                 </select>
@@ -233,7 +338,9 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
             )}
             {assignee === "agent" && (
               <p className="text-[9px] text-ink-faint">
-                {translate("Markdown 只是默认推荐格式；只有“生成产物/整理材料/进度摘要”会写文件。", "Markdown is only the recommended default; only artifact tasks write files.")}
+                {agentTaskType === "material_audit"
+                  ? translate("巡检仅检查本地引用并生成结果，不会删除材料或改写 Markdown。", "The audit checks local references and reports results; it never deletes materials or rewrites Markdown.")
+                  : translate("Markdown 只是默认推荐格式；只有“生成产物/整理材料/进度摘要”会写文件。", "Markdown is only the recommended default; only artifact tasks write files.")}
               </p>
             )}
             {error && <p className="text-[10px] text-coral">{error}</p>}

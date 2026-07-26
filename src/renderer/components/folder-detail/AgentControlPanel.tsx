@@ -49,6 +49,7 @@ const TASK_LABELS: Record<AgentTaskType, string> = {
   artifact: "生成本地产物",
   follow_up: "应用内跟进提醒",
   material_organize: "整理本地材料",
+  material_audit: "巡检失效材料引用",
   progress_summary: "生成进度摘要",
   workflow: "执行工作流",
 };
@@ -90,7 +91,9 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
       : null;
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
   const usesWorkflow = taskType === "workflow" || (!pendingTodo && config.strategy === "custom");
-  const requiresModel = !usesWorkflow;
+  const requiresModel = !usesWorkflow
+    && taskType !== "material_audit"
+    && (pendingTodo !== null || config.strategy !== "material_collect");
 
   const latestAgentEvent = useMemo(
     () => [...folder.timeline]
@@ -403,6 +406,8 @@ export default function AgentControlPanel({ folder }: AgentControlPanelProps) {
                 <p className="mt-1 text-[9px] text-ink-faint">
                   {usesWorkflow
                     ? t("本次交给工作流执行；工作流若包含“运行 Agent”节点，才可能请求模型。", "Runs through the workflow; a model may be requested only if it contains a Run Agent node.")
+                    : taskType === "material_audit" || (!pendingTodo && config.strategy === "material_collect")
+                      ? t("本地巡检不请求模型；只检查材料源文件是否仍存在，不会删除或改写引用。", "The local audit does not call a model. It only checks whether source files still exist and never deletes or rewrites references.")
                     : modelStatus.configured
                       ? t(`本次会请求模型 API（${modelStatus.model || "当前模型"}）。`, `This run will call the model API (${modelStatus.model || "current model"}).`)
                       : t("本任务需要模型 API，但当前尚未配置。", "This task needs a model API, which is not configured.")}

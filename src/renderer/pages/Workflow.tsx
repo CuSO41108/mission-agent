@@ -27,6 +27,7 @@ import type {
   WorkflowRule,
   WorkflowRun,
   WorkflowStepRun,
+  IntegrationAdapter,
 } from "@/types";
 import type { ModelProfile } from "@core/config";
 
@@ -46,6 +47,7 @@ const actionLabels = {
   run_agent: "运行 Agent",
   write_timeline: "写入时间线",
   notify: "发送应用内通知",
+  send_feishu_message: "发送飞书消息",
   save_artifact: "保存产物",
 } as const;
 
@@ -67,6 +69,7 @@ function actionConfig(type: WorkflowAction["type"], profiles: ModelProfile[]): W
     };
   }
   if (type === "save_artifact") return { artifactName: "工作流产物", artifactFormat: "markdown" };
+  if (type === "send_feishu_message") return { integrationId: null, integrationTargetId: null, messageTemplate: "{{data}}" };
   if (type === "write_timeline") return { message: "工作流已执行" };
   return {};
 }
@@ -105,6 +108,7 @@ export default function WorkflowPage() {
   const { locale, text: t } = usePreferences();
   const folders = useMissionStore((state) => state.folders);
   const workflows = useMissionStore((state) => state.workflows);
+  const integrations = useMissionStore((state) => state.integrations);
   const toggle = useMissionStore((state) => state.toggleWorkflow);
   const createWorkflow = useMissionStore((state) => state.createWorkflow);
   const updateWorkflow = useMissionStore((state) => state.updateWorkflow);
@@ -249,6 +253,7 @@ export default function WorkflowPage() {
           setSelectedNodeId={setSelectedNodeId}
           runs={runs}
           modelProfiles={modelProfiles}
+          integrations={integrations}
           saving={busy === "save"}
           resumingRunId={busy?.startsWith("resume:") ? busy.slice("resume:".length) : null}
           onResumeRun={(runId) => void resumeRun(runId)}
@@ -320,6 +325,7 @@ function WorkflowEditor({
   setSelectedNodeId,
   runs,
   modelProfiles,
+  integrations,
   saving,
   resumingRunId,
   onResumeRun,
@@ -333,6 +339,7 @@ function WorkflowEditor({
   setSelectedNodeId: (id: string) => void;
   runs: WorkflowRun[];
   modelProfiles: ModelProfile[];
+  integrations: IntegrationAdapter[];
   saving: boolean;
   resumingRunId: string | null;
   onResumeRun: (runId: string) => void;
@@ -408,8 +415,9 @@ function WorkflowEditor({
           <button onClick={addCondition} className="w-full p-2 border border-violet/30 text-[11px] text-violet flex items-center gap-2 hover:bg-violet/5"><Plus className="w-3 h-3" />添加条件</button>
           <button onClick={() => addAction("agent")} className="w-full p-2 border border-phosphor-400/35 text-[11px] text-phosphor-300 flex items-center gap-2 hover:bg-phosphor-400/5"><Plus className="w-3 h-3" />添加 Agent</button>
           <button onClick={() => addAction("save_artifact")} className="w-full p-2 border border-jade/30 text-[11px] text-jade flex items-center gap-2 hover:bg-jade/5"><Plus className="w-3 h-3" />添加保存产物</button>
+          <button onClick={() => addAction("send_feishu_message")} className="w-full p-2 border border-sky-400/30 text-[11px] text-sky-300 flex items-center gap-2 hover:bg-sky-400/5"><Plus className="w-3 h-3" />添加飞书消息</button>
           <button onClick={() => addAction()} className="w-full p-2 border border-jade/30 text-[11px] text-jade flex items-center gap-2 hover:bg-jade/5"><Plus className="w-3 h-3" />添加本地动作</button>
-          <p className="text-[10px] leading-relaxed text-ink-faint">Gmail、飞书和 Webhook 节点将在真实运行时接入后再开放。</p>
+          <p className="text-[10px] leading-relaxed text-ink-faint">飞书消息只会发往适配器中已授权的目标群；Gmail 等其他连接器仍未开放。</p>
           <div className="pt-3 border-t border-white/5">
             <p className="text-[10px] data-mono text-ink-faint uppercase flex items-center gap-1"><History className="w-3 h-3" />最近执行</p>
             <div className="mt-2 space-y-2 max-h-48 overflow-auto">
@@ -461,7 +469,7 @@ function WorkflowEditor({
           <p className="text-[10px] data-mono text-ink-faint uppercase mb-3">节点规则</p>
           {selectedLayout?.kind === "trigger" && <TriggerEditor draft={draft} setDraft={setDraft} folders={folders} />}
           {selectedCondition && <ConditionEditor condition={selectedCondition} setDraft={setDraft} />}
-          {selectedAction && <ActionEditor action={selectedAction} setDraft={setDraft} folders={folders} modelProfiles={modelProfiles} />}
+          {selectedAction && <ActionEditor action={selectedAction} setDraft={setDraft} folders={folders} modelProfiles={modelProfiles} integrations={integrations} />}
           {selectedLayout && selectedLayout.kind !== "trigger" && <button onClick={removeSelected} className="btn-ghost text-rose-300 mt-4"><Trash2 className="w-3 h-3" />删除节点</button>}
         </aside>
       </div>
@@ -489,7 +497,7 @@ function ConditionEditor({ condition, setDraft }: { condition: WorkflowCondition
   </div>;
 }
 
-function ActionEditor({ action, setDraft, folders, modelProfiles }: { action: WorkflowAction; setDraft: React.Dispatch<React.SetStateAction<UpsertWorkflowInput>>; folders: ReturnType<typeof useMissionStore.getState>["folders"]; modelProfiles: ModelProfile[] }) {
+function ActionEditor({ action, setDraft, folders, modelProfiles, integrations }: { action: WorkflowAction; setDraft: React.Dispatch<React.SetStateAction<UpsertWorkflowInput>>; folders: ReturnType<typeof useMissionStore.getState>["folders"]; modelProfiles: ModelProfile[]; integrations: IntegrationAdapter[] }) {
   const patch = (next: Partial<WorkflowAction>) => setDraft((current) => ({ ...current, actions: current.actions.map((item) => item.id === action.id ? { ...item, ...next } : item) }));
   const patchConfig = (next: Partial<WorkflowAction["config"]>) => patch({ config: { ...action.config, ...next } });
   const patchAgent = (next: Partial<NonNullable<WorkflowAction["config"]["agent"]>>) => patchConfig({ agent: { ...action.config.agent!, ...next } });
@@ -500,6 +508,32 @@ function ActionEditor({ action, setDraft, folders, modelProfiles }: { action: Wo
     {action.type === "create_todo" && <><EditorField label="待办标题"><input className="input" value={action.config.title ?? ""} onChange={(event) => patchConfig({ title: event.target.value })} /></EditorField><EditorField label="负责人"><select className="input" value={action.config.assignee ?? "human"} onChange={(event) => patchConfig({ assignee: event.target.value as "human" | "agent" })}><option value="human">我</option><option value="agent">Agent</option></select></EditorField></>}
     {action.type === "set_folder_status" && <EditorField label="目标状态"><select className="input" value={action.config.status ?? "active"} onChange={(event) => patchConfig({ status: event.target.value as WorkflowAction["config"]["status"] })}><option value="active">进行中</option><option value="paused">暂停</option><option value="done">完成</option><option value="archived">归档</option></select></EditorField>}
     {(action.type === "write_timeline" || action.type === "notify") && <EditorField label="内容"><textarea className="input min-h-24" value={action.config.message ?? ""} onChange={(event) => patchConfig({ message: event.target.value })} /></EditorField>}
+    {action.type === "send_feishu_message" && (() => {
+      const feishuAdapters = integrations.filter((item) => item.config.mode === "feishu_app" || item.config.mode === "feishu_webhook");
+      const selectedAdapter = feishuAdapters.find((item) => item.id === action.config.integrationId);
+      return <>
+        <EditorField label="飞书适配器">
+          <select className="input" value={action.config.integrationId ?? ""} onChange={(event) => patchConfig({ integrationId: event.target.value || null, integrationTargetId: null })}>
+            <option value="">请选择已配置适配器</option>
+            {feishuAdapters.map((integration) => <option key={integration.id} value={integration.id}>{integration.name}{integration.status === "connected" ? "" : "（未通过测试）"}</option>)}
+          </select>
+          {selectedAdapter && selectedAdapter.status !== "connected" && <p className="text-[9px] text-amber-400 mt-1">该适配器尚未通过测试连接，工作流不能启用。</p>}
+        </EditorField>
+        <EditorField label="授权目标群">
+          <select className="input" value={action.config.integrationTargetId ?? ""} onChange={(event) => patchConfig({ integrationTargetId: event.target.value || null })}>
+            <option value="">请选择目标群</option>
+            {(selectedAdapter?.config.targets ?? []).map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
+          </select>
+        </EditorField>
+        <EditorField label="纯文本消息模板">
+          <textarea className="input min-h-28" value={action.config.messageTemplate ?? ""} onChange={(event) => patchConfig({ messageTemplate: event.target.value })} placeholder="例如：文案生成完成：{{data.title}}" />
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {["{{data}}", "{{data.title}}", "{{data.content}}", "{{meta.workflowId}}"].map((variable) => <button key={variable} type="button" className="px-1.5 py-1 border border-white/10 text-[9px] data-mono text-ink-faint hover:text-phosphor-300" onClick={() => patchConfig({ messageTemplate: `${action.config.messageTemplate ?? ""}${variable}` })}>{variable}</button>)}
+          </div>
+          <p className="text-[9px] text-ink-faint mt-1">变量缺失时节点失败且不会发送残缺消息；不支持 JavaScript 表达式。</p>
+        </EditorField>
+      </>;
+    })()}
     {action.type === "agent" && action.config.agent && <>
       <EditorField label="模型配置">
         <select className="input" value={action.config.agent.modelProfileId ?? ""} onChange={(event) => patchAgent({ modelProfileId: event.target.value || null })}>

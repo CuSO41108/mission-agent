@@ -10,6 +10,7 @@ import type {
   AgentNotification,
   CreateFolderInput,
   CreateTodoInput,
+  UpdateTodoAssignmentInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   UpsertWorkflowInput,
@@ -40,6 +41,7 @@ interface MissionState {
   deleteFolder: (folderId: string) => Promise<boolean>;
   createTodo: (folderId: string, input: CreateTodoInput) => Promise<TaskFolder>;
   toggleTodo: (folderId: string, todoId: string) => Promise<void>;
+  updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) => Promise<void>;
   toggleAgent: (folderId: string) => Promise<void>;
   updateAgentConfig: (folderId: string, input: UpdateAgentConfigInput) => Promise<TaskFolder>;
   runAgentOnce: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
@@ -110,10 +112,15 @@ function planLocalReply(
     .sort((left, right) => (left.deadline ?? Infinity) - (right.deadline ?? Infinity));
 
   if (["邮件", "mail", "gmail", "飞书", "feishu", "lark", "同步接口"].some((word) => query.includes(word))) {
+    const verifiedFeishu = integrations.filter((item) =>
+      (item.config.mode === "feishu_app" || item.config.mode === "feishu_webhook")
+      && item.status === "connected");
     return {
-      fullText: integrations.length > 0
-        ? `当前保存了 ${integrations.length} 个适配器配置，但第三方连接运行时尚未接入，因此没有执行邮件收发、飞书同步或外部消息推送。`
-        : "当前没有已注册的适配器，第三方连接运行时也尚未接入，因此没有执行邮件收发、飞书同步或外部消息推送。",
+      fullText: verifiedFeishu.length > 0
+        ? `当前有 ${verifiedFeishu.length} 个已验证的飞书适配器，可由启用工作流中的显式“发送飞书消息”节点调用。保存配置或在 Copilot 对话中提及飞书都不会自动发送；邮件收发和飞书双向同步尚未开放。`
+        : integrations.length > 0
+          ? `当前保存了 ${integrations.length} 个适配器配置，但没有已通过连接测试的飞书发送适配器；邮件收发、飞书双向同步和其他外部推送尚未开放。`
+          : "当前没有已注册的适配器。可先在集成页配置并测试飞书发送；邮件收发、飞书双向同步和其他外部推送尚未开放。",
       actions: [{ id: genId(), label: "查看适配器", variant: "ghost", command: "open_integrations" }],
     };
   }
@@ -297,6 +304,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     const newDone = target ? !target.done : false;
 
     const updated = await window.missionConsole.toggleTodo(folderId, todoId, newDone);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
+    }));
+  },
+
+  updateTodoAssignment: async (folderId, todoId, input) => {
+    const updated = await window.missionConsole.updateTodoAssignment(folderId, todoId, input);
     set((state) => ({
       folders: state.folders.map((item) => (item.id === folderId ? updated : item)),
     }));

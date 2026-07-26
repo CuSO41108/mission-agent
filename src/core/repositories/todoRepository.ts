@@ -1,7 +1,7 @@
 // Todo Repository · 待办 CRUD（支持父子嵌套）
 
 import { getDb } from "../db/client";
-import type { Todo, Assignee, AgentTaskType, ArtifactFormat } from "../../renderer/types";
+import type { Todo, Assignee, AgentTaskType, ArtifactFormat, UpdateTodoAssignmentInput } from "../../renderer/types";
 import { toBool, toNumberOrNull, type DbRow } from "./base";
 
 export function mapTodo(row: DbRow): Todo {
@@ -90,6 +90,21 @@ export const TodoRepository = {
     const result = db
       .prepare("UPDATE todos SET done = ? WHERE id = ? AND folder_id = ?;")
       .run(done ? 1 : 0, id, folderId);
+    return Number(result.changes) === 1;
+  },
+
+  updateAssignment(folderId: string, id: string, input: UpdateTodoAssignmentInput): boolean {
+    const db = getDb();
+    const agentTaskType = input.assignee === "agent" ? input.agentTaskType ?? "analysis" : "analysis";
+    const artifactFormat = input.assignee === "agent" ? input.artifactFormat ?? "markdown" : "markdown";
+    const workflowId = input.assignee === "agent" && agentTaskType === "workflow"
+      ? input.workflowId ?? null
+      : null;
+    const result = db.prepare(
+      `UPDATE todos
+       SET assignee = ?, agent_task_type = ?, artifact_format = ?, workflow_id = ?
+       WHERE id = ? AND folder_id = ?;`,
+    ).run(input.assignee, agentTaskType, artifactFormat, workflowId, id, folderId);
     return Number(result.changes) === 1;
   },
 

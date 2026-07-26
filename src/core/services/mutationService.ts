@@ -15,6 +15,7 @@ import { emitWorkflowEvent } from "../workflow/events";
 import type {
   CreateFolderInput,
   CreateTodoInput,
+  UpdateTodoAssignmentInput,
   UpdateAgentConfigInput,
   TaskFolder,
   Material,
@@ -284,6 +285,68 @@ export function toggleTodo(folderId: string, todoId: string, done: boolean): Tas
       timestamp: Date.now(),
     });
   }
+  return updated;
+}
+
+const AGENT_TASK_TYPES = new Set([
+  "analysis",
+  "artifact",
+  "follow_up",
+  "material_organize",
+  "material_audit",
+  "progress_summary",
+  "workflow",
+]);
+
+const ARTIFACT_FORMATS = new Set(["markdown", "text", "json"]);
+
+/** 显式转交待办负责人；切给 Agent 时同时保存其执行方式。 */
+export function updateTodoAssignment(
+  folderId: string,
+  todoId: string,
+  input: UpdateTodoAssignmentInput,
+): TaskFolder {
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (folder.status === "archived") throw new Error("已归档任务舱不能修改待办负责人");
+  const todo = TodoRepository.findById(todoId);
+  if (!todo || todo.folderId !== folderId) throw new Error("待办不存在或不属于当前任务舱");
+  if (input.assignee !== "human" && input.assignee !== "agent") throw new Error("待办负责人无效");
+
+  const normalized: UpdateTodoAssignmentInput = { assignee: input.assignee };
+  if (input.assignee === "agent") {
+    const agentTaskType = input.agentTaskType ?? "analysis";
+    const artifactFormat = input.artifactFormat ?? "markdown";
+    if (!AGENT_TASK_TYPES.has(agentTaskType)) throw new Error("Agent 任务类型无效");
+    if (!ARTIFACT_FORMATS.has(artifactFormat)) throw new Error("Agent 产物格式无效");
+    if (agentTaskType === "workflow") {
+      const workflowId = input.workflowId?.trim();
+      if (!workflowId || !WorkflowRepository.findById(workflowId)) throw new Error("请选择有效的工作流");
+      normalized.workflowId = workflowId;
+    }
+    normalized.agentTaskType = agentTaskType;
+    normalized.artifactFormat = artifactFormat;
+  }
+
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    if (!TodoRepository.updateAssignment(folderId, todoId, normalized)) {
+      throw new Error("待办不存在或不属于当前任务舱");
+    }
+    logTimeline(
+      folderId,
+      "human",
+      input.assignee === "agent" ? "将待办转交 Agent" : "将待办改由 Human 处理",
+      { todoId, from: todo.assignee, to: input.assignee, agentTaskType: normalized.agentTaskType ?? null },
+    );
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+  const updated = getFolderDetail(folderId);
+  if (!updated) throw new Error("更新负责人后读取任务舱失败");
   return updated;
 }
 

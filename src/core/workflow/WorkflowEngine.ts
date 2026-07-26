@@ -21,6 +21,7 @@ import type {
   WorkflowRun,
 } from "../../renderer/types";
 import { validateLinearWorkflowGraph, workflowGraph } from "./graph";
+import { UncertainIntegrationStateError } from "../integrations/feishuConnector";
 import {
   onWorkflowEvent,
   withWorkflowTrace,
@@ -46,6 +47,13 @@ export interface WorkflowRuntime {
     stepId: string;
     idempotencyKey: string;
   }) => Promise<{ output: WorkflowDataEnvelope; outputRef?: string | null }>;
+  sendIntegrationMessage?: (request: {
+    node: WorkflowGraphNode;
+    input: WorkflowDataEnvelope;
+    runId: string;
+    stepId: string;
+    idempotencyKey: string;
+  }) => Promise<{ integrationId: string; targetId: string; messageLength: number; messageHash: string }>;
   notify: (payload: { title: string; body: string; folderId: string | null }) => void;
   changed: (folderIds: string[]) => void;
 }
@@ -187,6 +195,20 @@ async function executeNode(
       runtime.notify({ title: workflow.name, body: message, folderId });
       return { message: `应用内通知：${message}`, output: appendStepResult(input, node, { message }) };
     }
+    case "send_feishu_message": {
+      if (!runtime?.sendIntegrationMessage) throw new Error("尚未注册飞书消息连接器");
+      const result = await runtime.sendIntegrationMessage({
+        node,
+        input,
+        runId,
+        stepId: node.id,
+        idempotencyKey,
+      });
+      return {
+        message: "飞书消息发送成功",
+        output: appendStepResult(input, node, result),
+      };
+    }
     case "save_artifact": {
       if (!runtime?.saveArtifact) throw new Error("尚未注册工作流产物存储运行时");
       const result = await runtime.saveArtifact({ folderId, node, input, runId, stepId: node.id, idempotencyKey });
@@ -210,7 +232,7 @@ function initialEnvelope(workflow: WorkflowRule, event: WorkflowEvent): Workflow
 const WORKFLOW_LEASE_TTL_MS = 60_000;
 
 function uncertainStepRequiresReview(node: WorkflowGraphNode): boolean {
-  return node.type === "notify" || node.type === "run_agent";
+  return node.type === "notify" || node.type === "run_agent" || node.type === "send_feishu_message";
 }
 
 async function executePersistedRun(
@@ -274,12 +296,15 @@ async function executePersistedRun(
     run.message = messages.join("；") || "工作流执行完成";
   } catch (caught) {
     const error = caught instanceof Error ? caught.message : String(caught);
+    const uncertain = caught instanceof UncertainIntegrationStateError;
     if (activeStepId) {
       const step = WorkflowStepRunRepository.find(run.id, activeStepId);
-      if (step && step.status === "running") WorkflowStepRunRepository.markFailed(run.id, activeStepId, error);
+      if (step && step.status === "running") WorkflowStepRunRepository.markFailed(run.id, activeStepId, error, uncertain);
     }
     const latestCheckpoint = WorkflowCheckpointRepository.find(run.id);
-    if (latestCheckpoint?.status !== "needs_review") {
+    if (uncertain) {
+      WorkflowCheckpointRepository.saveBoundary(run.id, context, activeStepId, "needs_review");
+    } else if (latestCheckpoint?.status !== "needs_review") {
       WorkflowCheckpointRepository.saveBoundary(run.id, context, activeStepId, "failed");
     }
     run.status = "failed";

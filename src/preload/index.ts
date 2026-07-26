@@ -12,10 +12,12 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   TaskFolder,
   IntegrationAdapter,
+  IntegrationTarget,
   WorkflowRule,
   Material,
   CreateFolderInput,
   CreateTodoInput,
+  UpdateTodoAssignmentInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   FolderStatus,
@@ -27,6 +29,7 @@ import type {
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
 import type { AgentRunRecord } from "../core/agent";
+import type { MaterialAvailabilityItem } from "../core/services/materialAvailability";
 
 const api = {
   // ============ 应用信息 ============
@@ -84,6 +87,10 @@ const api = {
     ipcRenderer.invoke("integration:update", id, input) as Promise<IntegrationAdapter>,
   deleteIntegration: (id: string) =>
     ipcRenderer.invoke("integration:delete", id) as Promise<boolean>,
+  getIntegrationTargets: (id: string) =>
+    ipcRenderer.invoke("integration:targets", id) as Promise<IntegrationTarget[]>,
+  testIntegration: (id: string, targetId: string) =>
+    ipcRenderer.invoke("integration:test", id, targetId) as Promise<IntegrationAdapter | null>,
   getWorkflows: () => ipcRenderer.invoke("workflow:list") as Promise<WorkflowRule[]>,
   createWorkflow: (input: UpsertWorkflowInput) =>
     ipcRenderer.invoke("workflow:create", input) as Promise<WorkflowRule>,
@@ -109,6 +116,8 @@ const api = {
     ipcRenderer.invoke("todo:create", folderId, input) as Promise<TaskFolder>,
   toggleTodo: (folderId: string, todoId: string, done: boolean) =>
     ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<TaskFolder>,
+  updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) =>
+    ipcRenderer.invoke("todo:updateAssignment", folderId, todoId, input) as Promise<TaskFolder>,
   // 添加材料
   addMaterial: (
     folderId: string,
@@ -118,6 +127,8 @@ const api = {
     ipcRenderer.invoke("material:updateNote", folderId, materialId, content) as Promise<Material>,
   deleteMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
+  checkMaterialAvailability: (folderId: string) =>
+    ipcRenderer.invoke("material:checkAvailability", folderId) as Promise<MaterialAvailabilityItem[]>,
   pickMaterialFile: () =>
     ipcRenderer.invoke("file:pickMaterial") as Promise<Array<{ path: string; name: string }>>,
   getPathForDroppedFile: (file: File) => webUtils.getPathForFile(file),
