@@ -42,6 +42,13 @@ import { AgentRunRepository } from "../src/core/repositories/agentRunRepository"
 import { tick } from "../src/core/workflow/WorkflowService";
 import { AgentRunQueue } from "../src/core/agent/AgentRunQueue";
 import { WorkflowStepRunRepository } from "../src/core/repositories/workflowRepository";
+import { IntegrationRepository } from "../src/core/repositories/integrationRepository";
+import {
+  listFeishuTargets,
+  renderIntegrationTemplate,
+  sendFeishuText,
+  testFeishuConnection,
+} from "../src/core/integrations/feishuConnector";
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -360,11 +367,15 @@ test("适配器注册、配置更新和清理保持本地数据边界", () => {
         smtpPort: null,
         webhookUrl: "",
         authType: "api_key",
+        mode: "legacy",
+        targets: [],
       },
       secrets: { apiKey: "encrypted-value" },
     });
     assert.equal(created.config.secretConfigured.apiKey, true);
     assert.equal("secrets" in created.config, false);
+    const storedAfterCreate = String((getDb().prepare("SELECT config FROM integrations WHERE id = ?").get(created.id) as { config: string }).config);
+    assert.doesNotMatch(storedAfterCreate, /encrypted-value/);
 
     const updated = updateIntegration(created.id, {
       name: "Internal API v2",
@@ -380,6 +391,8 @@ test("适配器注册、配置更新和清理保持本地数据边界", () => {
         smtpPort: created.config.smtpPort,
         webhookUrl: created.config.webhookUrl,
         authType: created.config.authType,
+        mode: created.config.mode,
+        targets: created.config.targets,
       },
       secrets: {},
     });
@@ -400,6 +413,8 @@ test("适配器注册、配置更新和清理保持本地数据边界", () => {
         smtpPort: updated.config.smtpPort,
         webhookUrl: updated.config.webhookUrl,
         authType: updated.config.authType,
+        mode: updated.config.mode,
+        targets: updated.config.targets,
       },
       secrets: { apiKey: null },
     });
@@ -569,6 +584,255 @@ test("工作流使用同一 runId 从 Agent 节点 Checkpoint 断点续跑", asy
     assert.equal(WorkflowStepRunRepository.find(failed.id, actionId)?.attempts, 2);
     assert.equal(WorkflowStepRunRepository.find(failed.id, actionId)?.output?.data && (WorkflowStepRunRepository.find(failed.id, actionId)!.output!.data as { recovered: boolean }).recovered, true);
     assert.equal(getWorkflowRuns(workflow.id).length, 1);
+  } finally {
+    dispose();
+    closeDatabase();
+  }
+});
+
+test("飞书群机器人凭据不落库，并仅向适配器授权目标发送文本", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody = "";
+  try {
+    const integration = createIntegration({
+      name: "研发通知群",
+      type: "chat",
+      description: "测试飞书发送",
+      config: {
+        provider: "Feishu",
+        account: "",
+        endpoint: "https://open.feishu.cn",
+        imapHost: "",
+        imapPort: null,
+        smtpHost: "",
+        smtpPort: null,
+        webhookUrl: "",
+        authType: "webhook",
+        mode: "feishu_webhook",
+        targets: [{ id: "webhook", name: "研发通知群", kind: "webhook" }],
+      },
+      secrets: {
+        webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/test-secret",
+        token: "signing-secret",
+      },
+    });
+    const stored = String((getDb().prepare("SELECT config FROM integrations WHERE id = ?").get(integration.id) as { config: string }).config);
+    assert.doesNotMatch(stored, /test-secret|signing-secret/);
+    IntegrationRepository.updateStatus(integration.id, "connected");
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requestedUrl = String(url);
+      requestedBody = String(init?.body ?? "");
+      return new Response(JSON.stringify({ code: 0, msg: "success" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    await sendFeishuText({
+      integrationId: integration.id,
+      targetId: "webhook",
+      text: "任务完成",
+      idempotencyKey: "run-1-step-1",
+    });
+    assert.match(requestedUrl, /test-secret/);
+    assert.deepEqual((JSON.parse(requestedBody) as { content: { text: string } }).content, { text: "任务完成" });
+    assert.equal(IntegrationRepository.findById(integration.id)?.eventsToday, 1);
+    await assert.rejects(
+      sendFeishuText({ integrationId: integration.id, targetId: "not-authorized", text: "不应发送", idempotencyKey: "x" }),
+      /未在适配器授权列表/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    closeDatabase();
+  }
+});
+
+test("飞书连接测试只在真实发送成功后标记已验证，并识别 Webhook 业务错误", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const originalFetch = globalThis.fetch;
+  try {
+    const integration = createIntegration({
+      name: "测试通知群",
+      type: "chat",
+      description: "测试连接状态",
+      config: {
+        provider: "Feishu",
+        account: "",
+        endpoint: "https://open.feishu.cn",
+        imapHost: "",
+        imapPort: null,
+        smtpHost: "",
+        smtpPort: null,
+        webhookUrl: "",
+        authType: "webhook",
+        mode: "feishu_webhook",
+        targets: [{ id: "webhook", name: "测试通知群", kind: "webhook" }],
+      },
+      secrets: { webhookUrl: "https://open.feishu.cn/open-apis/bot/v2/hook/connection-test" },
+    });
+    assert.equal(integration.status, "disconnected");
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      StatusCode: 19002,
+      StatusMessage: "sign match fail or timestamp is not within one hour from current time",
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+    await assert.rejects(testFeishuConnection(integration.id, "webhook"), /19002.*sign match fail/);
+    assert.equal(IntegrationRepository.findById(integration.id)?.status, "error");
+    assert.equal(IntegrationRepository.findById(integration.id)?.eventsToday, 0);
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ StatusCode: 0, StatusMessage: "success" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch;
+    await testFeishuConnection(integration.id, "webhook");
+    assert.equal(IntegrationRepository.findById(integration.id)?.status, "connected");
+    assert.equal(IntegrationRepository.findById(integration.id)?.eventsToday, 1);
+
+    assert.throws(() => createIntegration({
+      name: "错误地址",
+      type: "chat",
+      description: "不允许伪装成飞书的任意地址",
+      config: {
+        provider: "Feishu",
+        account: "",
+        endpoint: "https://open.feishu.cn",
+        imapHost: "",
+        imapPort: null,
+        smtpHost: "",
+        smtpPort: null,
+        webhookUrl: "",
+        authType: "webhook",
+        mode: "feishu_webhook",
+        targets: [{ id: "webhook", name: "错误地址", kind: "webhook" }],
+      },
+      secrets: { webhookUrl: "https://example.com/collect" },
+    }), /必须是 open\.feishu\.cn/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    closeDatabase();
+  }
+});
+
+test("飞书自建应用使用机器人身份列出群，消息模板只解析受限变量", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  try {
+    const integration = createIntegration({
+      name: "企业机器人",
+      type: "chat",
+      description: "读取机器人所在群",
+      config: {
+        provider: "Feishu",
+        account: "",
+        endpoint: "https://open.feishu.cn",
+        imapHost: "",
+        imapPort: null,
+        smtpHost: "",
+        smtpPort: null,
+        webhookUrl: "",
+        authType: "oauth2",
+        mode: "feishu_app",
+        targets: [],
+      },
+      secrets: { clientId: "app-id", clientSecret: "app-secret" },
+    });
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      requests.push(String(url));
+      if (requests.length === 1) {
+        return new Response(JSON.stringify({ code: 0, tenant_access_token: "tenant-token" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        code: 0,
+        data: { items: [{ chat_id: "oc_team", name: "产品群" }], has_more: false },
+      }), { status: 200 });
+    }) as typeof fetch;
+    const targets = await listFeishuTargets(integration.id);
+    assert.deepEqual(targets, [{ id: "oc_team", name: "产品群", kind: "chat" }]);
+    assert.match(requests[0], /tenant_access_token\/internal/);
+    assert.match(requests[1], /\/im\/v1\/chats/);
+
+    assert.equal(renderIntegrationTemplate("标题：{{data.title}}", {
+      version: 1,
+      data: { title: "周报" },
+      meta: {},
+    }), "标题：周报");
+    assert.throws(() => renderIntegrationTemplate("{{data.missing}}", {
+      version: 1,
+      data: {},
+      meta: {},
+    }), /没有可用值/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    closeDatabase();
+  }
+});
+
+test("飞书消息工作流从成功 Checkpoint 恢复时不会重复发送", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  let sendCount = 0;
+  const dispose = registerWorkflowRuntime({
+    runAgent: async () => ({ ok: true, summary: "unused" }),
+    sendIntegrationMessage: async () => {
+      sendCount += 1;
+      return {
+        integrationId: "int-feishu",
+        targetId: "oc_team",
+        messageLength: 4,
+        messageHash: "hash-only",
+      };
+    },
+    notify: () => undefined,
+    changed: () => undefined,
+  });
+  try {
+    const folder = createFolder({
+      name: "飞书工作流测试",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: false,
+    });
+    const workflow = createWorkflow({
+      name: "发送飞书通知",
+      enabled: false,
+      trigger: { type: "manual", label: "手动执行", folderId: folder.id },
+      conditions: [],
+      actions: [{
+        id: "send-feishu",
+        type: "send_feishu_message",
+        label: "发送飞书消息",
+        config: {
+          folderId: folder.id,
+          integrationId: "int-feishu",
+          integrationTargetId: "oc_team",
+          messageTemplate: "{{data}}",
+        },
+      }],
+      layout: [
+        { id: "node-trigger", kind: "trigger", refId: "trigger", x: 32, y: 56 },
+        { id: "node-send", kind: "action", refId: "send-feishu", x: 276, y: 56 },
+      ],
+    });
+    const run = await runWorkflow(workflow.id, {
+      type: "manual",
+      folderId: folder.id,
+      timestamp: Date.now(),
+    });
+    assert.equal(run.status, "success");
+    assert.equal(sendCount, 1);
+    const resumed = await resumeWorkflowRun(run.id);
+    assert.equal(resumed.status, "success");
+    assert.equal(sendCount, 1);
+    const step = WorkflowStepRunRepository.find(run.id, "send-feishu");
+    assert.equal(step?.status, "succeeded");
+    assert.doesNotMatch(JSON.stringify(step?.output), /Mission Console|测试消息正文/);
   } finally {
     dispose();
     closeDatabase();
