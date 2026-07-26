@@ -111,6 +111,7 @@ const SECRET_LABEL: Record<IntegrationSecretKey, string> = {
   username: "Username",
   password: "Password",
   token: "Signing token",
+  webhookUrl: "Webhook URL",
 };
 
 const emptyInput = (): UpsertIntegrationInput => ({
@@ -127,6 +128,8 @@ const emptyInput = (): UpsertIntegrationInput => ({
     smtpPort: null,
     webhookUrl: "",
     authType: "api_key",
+    mode: "legacy",
+    targets: [],
   },
 });
 
@@ -159,6 +162,8 @@ export default function AdapterEditor({ open, adapter, onClose }: AdapterEditorP
           smtpPort: adapter.config.smtpPort,
           webhookUrl: adapter.config.webhookUrl,
           authType: adapter.config.authType,
+          mode: adapter.config.mode,
+          targets: adapter.config.targets,
         },
       });
       setTemplate("custom");
@@ -194,6 +199,8 @@ export default function AdapterEditor({ open, adapter, onClose }: AdapterEditorP
         smtpPort: selected.smtpPort ?? null,
         webhookUrl: "",
         authType: selected.authType,
+        mode: "legacy",
+        targets: [],
       },
     });
     setSecrets({});

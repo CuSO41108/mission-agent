@@ -9,11 +9,13 @@ import {
   Plug,
   Send,
   Settings2,
+  AlertTriangle,
 } from "lucide-react";
 import { useMissionStore } from "@/store/useMissionStore";
 import { usePreferences } from "@/i18n";
 import type { IntegrationAdapter, IntegrationType } from "@/types";
-import AdapterEditor from "@/components/integrations/AdapterEditor";
+import LegacyAdapterEditor from "@/components/integrations/AdapterEditor";
+import FeishuAdapterWizard from "@/components/integrations/FeishuAdapterWizard";
 
 const TYPE_ICON: Record<IntegrationType, typeof Mail> = {
   email: Mail,
@@ -72,7 +74,7 @@ export default function Integrations() {
           <div className="flex items-center gap-4 mt-1 text-[11px] data-mono text-ink-faint">
             <span>{t("已注册", "Registered")} {integrations.length}</span>
             <span>{t("已存凭据", "Credentials stored")} {credentialCount}</span>
-            <span className="text-amber-500">{t("运行时未连接", "Runtime not connected")}</span>
+            <span className="text-amber-500">{t("飞书发送能力实验中", "Feishu sending is experimental")}</span>
           </div>
         </div>
         <button onClick={openCreate} className="btn-phosphor h-9">
@@ -80,6 +82,18 @@ export default function Integrations() {
           {t("注册适配器", "Register adapter")}
         </button>
       </header>
+
+      <section className="border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 flex items-start gap-3">
+        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-[11px] font-medium text-amber-300">
+            {t("实验性，仅保存配置；除已明确标记的飞书发送能力外，尚未连接第三方服务。", "Experimental: configuration is stored locally. Third-party services are not connected except for explicitly marked Feishu sending capabilities.")}
+          </p>
+          <p className="mt-1 text-[10px] leading-relaxed text-ink-faint">
+            {t("保存配置不会自动发送消息。只有已启用工作流中的显式飞书节点能够产生外部操作。", "Saving never sends a message. External actions can only come from explicit Feishu nodes in enabled workflows.")}
+          </p>
+        </div>
+      </section>
 
       {integrations.length === 0 ? (
         <section className="min-h-[360px] panel border-dashed flex flex-col items-center justify-center text-center px-6">
@@ -118,7 +132,9 @@ export default function Integrations() {
         </section>
       )}
 
-      <AdapterEditor open={editorOpen} adapter={selected} onClose={closeEditor} />
+      {selected?.config.mode === "legacy"
+        ? <LegacyAdapterEditor open={editorOpen} adapter={selected} onClose={closeEditor} />
+        : <FeishuAdapterWizard open={editorOpen} adapter={selected} onClose={closeEditor} />}
     </main>
   );
 }
@@ -133,7 +149,15 @@ function IntegrationCard({
   const { text: t } = usePreferences();
   const Icon = TYPE_ICON[integration.type];
   const secrets = Object.values(integration.config.secretConfigured).filter(Boolean).length;
-  const endpoint = integration.config.endpoint || integration.config.webhookUrl || integration.config.imapHost;
+  const isFeishu = integration.config.mode === "feishu_app" || integration.config.mode === "feishu_webhook";
+  const endpoint = isFeishu
+    ? integration.config.targets.map((target) => target.name).join("、")
+    : integration.config.endpoint || integration.config.imapHost;
+  const statusMeta = integration.status === "connected"
+    ? { color: "text-jade", dot: "bg-jade", label: t("已验证", "VERIFIED") }
+    : integration.status === "error"
+      ? { color: "text-coral", dot: "bg-coral", label: t("连接错误", "ERROR") }
+      : { color: "text-amber-400", dot: "bg-amber-400", label: t("未验证", "UNVERIFIED") };
 
   return (
     <article className="panel relative min-h-[270px] flex flex-col overflow-hidden border-white/8 hover:border-phosphor-400/35 transition-colors">
@@ -144,9 +168,9 @@ function IntegrationCard({
           <div className="w-10 h-10 border border-phosphor-400/25 bg-phosphor-400/[0.04] flex items-center justify-center clip-corner">
             <Icon className="w-4.5 h-4.5 text-phosphor-400" strokeWidth={1.5} />
           </div>
-          <div className="flex items-center gap-2 text-[9px] data-mono text-amber-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-            {t("未验证", "UNVERIFIED")}
+          <div className={`flex items-center gap-2 text-[9px] data-mono ${statusMeta.color}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot}`} />
+            {statusMeta.label}
           </div>
         </div>
 
@@ -164,7 +188,7 @@ function IntegrationCard({
 
         <dl className="mt-auto pt-4 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-white/6 text-[10px]">
           <div className="min-w-0">
-            <dt className="text-ink-faint">{t("目标地址", "Endpoint")}</dt>
+            <dt className="text-ink-faint">{isFeishu ? t("授权目标群", "Authorized targets") : t("目标地址", "Endpoint")}</dt>
             <dd className="mt-0.5 text-ink-muted truncate" title={endpoint || undefined}>{endpoint || "—"}</dd>
           </div>
           <div>
@@ -179,7 +203,7 @@ function IntegrationCard({
           </div>
           <div>
             <dt className="text-ink-faint">{t("运行事件", "Runtime events")}</dt>
-            <dd className="mt-0.5 text-ink-muted">0</dd>
+            <dd className="mt-0.5 text-ink-muted">{integration.eventsToday}</dd>
           </div>
         </dl>
       </div>
