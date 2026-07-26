@@ -28,6 +28,7 @@ import type {
 } from "../renderer/types";
 import type { AppConfig } from "../core/config";
 import type { AgentRunRecord } from "../core/agent";
+import type { MaterialAvailabilityItem } from "../core/services/materialAvailability";
 
 const api = {
   // ============ 应用信息 ============
@@ -121,6 +122,8 @@ const api = {
     ipcRenderer.invoke("material:updateNote", folderId, materialId, content) as Promise<Material>,
   deleteMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
+  checkMaterialAvailability: (folderId: string) =>
+    ipcRenderer.invoke("material:checkAvailability", folderId) as Promise<MaterialAvailabilityItem[]>,
   pickMaterialFile: () =>
     ipcRenderer.invoke("file:pickMaterial") as Promise<Array<{ path: string; name: string }>>,
   getPathForDroppedFile: (file: File) => webUtils.getPathForFile(file),

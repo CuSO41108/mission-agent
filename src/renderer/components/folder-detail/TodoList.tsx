@@ -217,6 +217,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                       <option value="artifact">{translate("生成本地产物", "Create local artifact")}</option>
                       <option value="follow_up">{translate("应用内跟进提醒", "In-app follow-up")}</option>
                       <option value="material_organize">{translate("整理本地材料", "Organize local materials")}</option>
+                      <option value="material_audit">{translate("巡检失效材料引用", "Audit unavailable material references")}</option>
                       <option value="progress_summary">{translate("生成进度摘要", "Create progress summary")}</option>
                       <option value="workflow">{translate("执行工作流", "Run workflow")}</option>
                     </select>
@@ -316,6 +317,7 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
                   <option value="artifact">{translate("生成本地产物", "Create local artifact")}</option>
                   <option value="follow_up">{translate("应用内跟进提醒", "In-app follow-up")}</option>
                   <option value="material_organize">{translate("整理本地材料", "Organize local materials")}</option>
+                  <option value="material_audit">{translate("巡检失效材料引用", "Audit unavailable material references")}</option>
                   <option value="progress_summary">{translate("生成进度摘要", "Create progress summary")}</option>
                   <option value="workflow">{translate("执行工作流", "Run workflow")}</option>
                 </select>
@@ -336,7 +338,9 @@ export default function TodoList({ folderId, todos }: TodoListProps) {
             )}
             {assignee === "agent" && (
               <p className="text-[9px] text-ink-faint">
-                {translate("Markdown 只是默认推荐格式；只有“生成产物/整理材料/进度摘要”会写文件。", "Markdown is only the recommended default; only artifact tasks write files.")}
+                {agentTaskType === "material_audit"
+                  ? translate("巡检仅检查本地引用并生成结果，不会删除材料或改写 Markdown。", "The audit checks local references and reports results; it never deletes materials or rewrites Markdown.")
+                  : translate("Markdown 只是默认推荐格式；只有“生成产物/整理材料/进度摘要”会写文件。", "Markdown is only the recommended default; only artifact tasks write files.")}
               </p>
             )}
             {error && <p className="text-[10px] text-coral">{error}</p>}

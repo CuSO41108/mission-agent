@@ -10,6 +10,7 @@ export type AgentTaskType =
   | "artifact"
   | "follow_up"
   | "material_organize"
+  | "material_audit"
   | "progress_summary"
   | "workflow";
 export type ArtifactFormat = "markdown" | "text" | "json";

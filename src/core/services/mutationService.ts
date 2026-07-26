@@ -293,6 +293,7 @@ const AGENT_TASK_TYPES = new Set([
   "artifact",
   "follow_up",
   "material_organize",
+  "material_audit",
   "progress_summary",
   "workflow",
 ]);

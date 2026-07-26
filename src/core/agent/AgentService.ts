@@ -12,6 +12,7 @@ import { TimelineRepository } from "../repositories/timelineRepository";
 import { TodoRepository } from "../repositories/todoRepository";
 import { getDb } from "../db/client";
 import { getFolderDetail } from "../services/folderService";
+import { listMissingMaterials } from "../services/materialAvailability";
 import { emitWorkflowEvent } from "../workflow/events";
 import {
   commitStagedArtifact,
@@ -99,6 +100,11 @@ function buildTaskSystemPrompt(todo: Todo, format: ArtifactFormat): string {
         "你是 Mission Console 的本地材料整理 Agent。",
         `把已挂载材料整理为结构清晰的${formatLabel(format)}清单或摘要。`,
         "注明材料名称和已知来源，不访问或声称访问第三方服务。只返回产物正文。",
+      ].join("\n");
+    case "material_audit":
+      return [
+        "你是 Mission Console 的本地材料巡检 Agent。",
+        "本次巡检由应用本地完成，不请求模型，也不会删除任何材料引用。",
       ].join("\n");
     case "progress_summary":
       return [
@@ -257,7 +263,48 @@ export async function runAgentOnce(
   }
 
   if (!folder.agentConfig.permissions.read) {
-    return failure(folder, "task_permission_denied", "Agent 缺少读取权限，不能把任务舱上下文发送给模型", "AGENT_READ_PERMISSION_REQUIRED", todo ?? undefined);
+    return failure(folder, "task_permission_denied", "Agent 缺少读取权限，不能检查任务舱材料或发送任务上下文", "AGENT_READ_PERMISSION_REQUIRED", todo ?? undefined);
+  }
+
+  const isMaterialAudit = todo?.agentTaskType === "material_audit";
+  const isManagedMaterialCheck = !todo && folder.agentConfig.strategy === "material_collect";
+  if (isMaterialAudit || isManagedMaterialCheck) {
+    if (isMaterialAudit && !folder.agentConfig.permissions.write) {
+      return failure(folder, "task_permission_denied", "Agent 缺少写入权限，不能完成材料巡检待办", "AGENT_WRITE_PERMISSION_REQUIRED", todo);
+    }
+    const missingMaterials = listMissingMaterials(folder.materials);
+    const names = missingMaterials.map((material) => material.name).join("、");
+    const summary = missingMaterials.length > 0
+      ? `材料巡检完成：发现 ${missingMaterials.length} 个不可用引用（${names}）。请在材料库确认后移除引用。`
+      : "材料巡检完成：当前没有失效的本地材料引用。";
+    const db = getDb();
+    db.exec("BEGIN;");
+    try {
+      if (isMaterialAudit && todo) finishTodo(folder.id, todo);
+      writeTimeline(folder.id, "agent", summary, {
+        todoId: todo?.id,
+        materialAudit: true,
+        missingMaterialIds: missingMaterials.map((material) => material.id),
+        missingMaterialNames: missingMaterials.map((material) => material.name),
+      });
+      updateLastAction(folder.id);
+      db.exec("COMMIT;");
+    } catch (caught) {
+      db.exec("ROLLBACK;");
+      throw caught;
+    }
+    if (isMaterialAudit && todo) {
+      emitWorkflowEvent({ type: "todo_completed", folderId, todoId: todo.id, text: todo.title, assignee: todo.assignee, timestamp: Date.now() });
+    }
+    return {
+      folderId,
+      folderName: folder.name,
+      summary,
+      action: "material_audit_completed",
+      suggestions: missingMaterials.length > 0 ? ["确认后在材料库移除失效引用"] : [],
+      ok: true,
+      todoId: todo?.id,
+    };
   }
   if (!config.apiKey) {
     return failure(folder, "model_not_configured", "尚未配置模型 API Key，未执行 Agent", "MODEL_NOT_CONFIGURED", todo ?? undefined);

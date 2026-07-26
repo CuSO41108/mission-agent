@@ -9,6 +9,7 @@ import { closeDatabase, initDatabase } from "../src/core/db/client";
 import { migrateDatabase } from "../src/core/db/migrate";
 import { seedDatabase } from "../src/core/db/seed";
 import { getFolderDetail } from "../src/core/services/folderService";
+import { inspectMaterialAvailability } from "../src/core/services/materialAvailability";
 import {
   createIntegration,
   deleteIntegration,
@@ -668,6 +669,53 @@ test("分析型 Agent 待办不会自动生成文件或标记完成，读取权�
     assert.equal(getFolderDetail(artifactFolder.id)?.materials.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
+    closeDatabase();
+  }
+});
+
+test("材料巡检即时识别失效引用，且无需模型也不会自动删除记录", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  const existingPath = path.join(os.tmpdir(), `mission-console-material-${Date.now()}.txt`);
+  fs.writeFileSync(existingPath, "available", "utf8");
+  try {
+    const folder = createFolder({
+      name: "材料巡检",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: true,
+    });
+    addMaterial(folder.id, { type: "doc", name: "可用材料", content: existingPath });
+    const missingPath = path.join(os.tmpdir(), `mission-console-missing-${Date.now()}.png`);
+    const missing = addMaterial(folder.id, { type: "image", name: "失效图片", content: missingPath });
+    const auditTodo = createTodo(folder.id, {
+      title: "巡检失效材料引用",
+      dueDate: null,
+      assignee: "agent",
+      agentTaskType: "material_audit",
+    });
+    updateAgentConfig(folder.id, { permissions: { read: true, write: true }, strategy: "material_collect" });
+
+    const availability = inspectMaterialAvailability(getFolderDetail(folder.id)?.materials ?? []);
+    assert.deepEqual(availability.find((item) => item.materialId === missing.id), {
+      materialId: missing.id,
+      availability: "missing",
+    });
+
+    const result = await runAgentOnce(folder.id, { apiKey: "", baseUrl: "https://example.invalid", model: "test" });
+    assert.equal(result.ok, true);
+    assert.equal(result.action, "material_audit_completed");
+    assert.match(result.summary, /1 个不可用引用/);
+    const afterAudit = getFolderDetail(folder.id)!;
+    assert.equal(afterAudit.materials.length, 2);
+    assert.equal(afterAudit.todos.find((todo) => todo.id === auditTodo.todos[0].id)?.done, true);
+
+    const heartbeatAudit = await runAgentOnce(folder.id, { apiKey: "", baseUrl: "https://example.invalid", model: "test" });
+    assert.equal(heartbeatAudit.ok, true);
+    assert.equal(heartbeatAudit.action, "material_audit_completed");
+  } finally {
+    if (fs.existsSync(existingPath)) fs.unlinkSync(existingPath);
     closeDatabase();
   }
 });

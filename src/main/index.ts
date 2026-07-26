@@ -52,6 +52,8 @@ import {
   updateWorkflow,
   deleteWorkflow,
   getWorkflowRuns,
+  getMaterialAvailability,
+  inspectMaterialAvailability,
 } from "../core/services";
 import {
   initConfigFile,
@@ -675,7 +677,11 @@ function registerIpc(): void {
     (_e, folderId: string, todoId: string, input: Parameters<typeof updateTodoAssignment>[2]) =>
       updateTodoAssignment(folderId, todoId, input),
   );
-
+  ipcMain.handle("material:checkAvailability", (_e, folderId: string) => {
+    const folder = getFolderDetail(folderId);
+    if (!folder) throw new Error("任务舱不存在");
+    return inspectMaterialAvailability(folder.materials);
+  });
   ipcMain.handle("file:pickMaterial", async () => {
     const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
       title: "选择要引用的材料文件",
@@ -704,6 +710,9 @@ function registerIpc(): void {
     }
     if (!path.isAbsolute(target)) {
       return { ok: false, error: "该材料没有可打开的本地文件或链接" };
+    }
+    if (getMaterialAvailability(material) === "missing") {
+      return { ok: false, error: "源文件已在外部移动或删除；可从材料库移除此失效引用。" };
     }
     const error = await shell.openPath(target);
     return error ? { ok: false, error } : { ok: true };

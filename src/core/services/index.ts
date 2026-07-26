@@ -4,6 +4,11 @@ export {
   getAllFoldersWithDetails,
 } from "./folderService";
 export {
+  getMaterialAvailability,
+  inspectMaterialAvailability,
+  listMissingMaterials,
+} from "./materialAvailability";
+export {
   createIntegration,
   deleteIntegration,
   getAllIntegrations,
