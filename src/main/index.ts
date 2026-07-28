@@ -707,18 +707,11 @@ function registerIpc(): void {
       title: "选择要引用的材料文件",
       properties: ["openFile", "multiSelections"],
     });
-    if (result.canceled || result.filePaths.length === 0) return [];
-    return result.filePaths.map((filePath) => ({ path: filePath, name: path.basename(filePath) }));
-  });
-  ipcMain.handle("model-profile:test", async (_e, profileId: string) => {
-    try {
-      const profile = getConfig().models.profiles.find((item) => item.id === profileId);
-      if (!profile) throw new Error("模型配置不存在");
-      const result = await testDeepSeek(profile);
-      return { ok: true as const, content: result.content, model: result.model };
-    } catch (error) {
-      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
-    }
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths.map((filePath) => ({
+      path: filePath,
+      name: path.basename(filePath),
+    }));
   });
   ipcMain.handle("material:open", async (_e, folderId: string, materialId: string) => {
     const material = getFolderDetail(folderId)?.materials.find((item) => item.id === materialId);

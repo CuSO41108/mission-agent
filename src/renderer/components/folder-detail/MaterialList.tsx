@@ -103,18 +103,37 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
 
   const handleSubmit = async () => {
     const value = input.trim();
-    if (!value && pickedFiles.length === 0) return;
+    if (adding || (!value && pickedFiles.length === 0)) return;
+    setAdding(true);
     try {
-      setAdding(true);
       setError("");
       if (pickedFiles.length > 0) {
-        for (const file of pickedFiles) {
-          await onAdd?.({
-            type: detectType(file.path, "auto"),
-            name: pickedFiles.length === 1 && name.trim() ? name.trim() : file.name,
-            content: file.path,
-          });
+        const filesToAdd = pickedFiles;
+        let added = 0;
+        try {
+          for (const file of filesToAdd) {
+            await onAdd?.({
+              type: detectType(file.path, "auto"),
+              name: filesToAdd.length === 1 ? name.trim() || file.name : file.name,
+              content: file.path,
+            });
+            added += 1;
+          }
+        } catch (err) {
+          const remaining = filesToAdd.slice(added);
+          setPickedFiles(remaining);
+          setInput(remaining.length === 1 ? remaining[0].path : "");
+          setName(remaining.length === 1 ? remaining[0].name : "");
+          const detail = err instanceof Error ? err.message : String(err);
+          throw new Error(t(
+            `已添加 ${added} 个文件，随后失败：${detail}`,
+            `Added ${added} file(s), then failed: ${detail}`,
+          ));
         }
+        setNotice(t(
+          `已添加 ${added} 个本地文件引用；磁盘原文件未移动。`,
+          `Added ${added} local file reference(s); source files were not moved.`,
+        ));
       } else {
         const type = detectType(value, tab === "file" ? "auto" : tab);
         const finalName = name.trim() || (type === "link" ? value : value.split(/[\\/]/).pop() || value);
@@ -447,7 +466,9 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-obsidian-950/70 backdrop-blur-sm"
-            onClick={() => setModalOpen(false)}
+            onClick={() => {
+              if (!adding) setModalOpen(false);
+            }}
           >
             <motion.div
               initial={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -463,6 +484,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                 </h3>
                 <button
                   onClick={() => setModalOpen(false)}
+                  disabled={adding}
                   className="w-6 h-6 flex items-center justify-center text-ink-faint hover:text-ink border border-phosphor-400/15 hover:border-phosphor-400/40 transition-colors"
                 >
                   <X className="w-3 h-3" strokeWidth={1.5} />
@@ -474,7 +496,11 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                 {tabs.map((tabOption) => (
                   <button
                     key={tabOption.key}
-                    onClick={() => setTab(tabOption.key)}
+                    disabled={adding}
+                    onClick={() => {
+                      setTab(tabOption.key);
+                      setPickedFiles([]);
+                    }}
                     className={cn(
                       "px-2.5 py-1 text-[11px] border transition-colors",
                       tab === tabOption.key
@@ -507,6 +533,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                       <input
                         autoFocus
                         value={input}
+                        disabled={adding}
                         onChange={(e) => {
                           setInput(e.target.value);
                           setPickedFiles([]);
@@ -523,16 +550,30 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                           className="btn-ghost shrink-0"
                         >
                           {picking ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
-                          {t("选择文件", "Choose file")}
+                          {t("选择文件（可多选）", "Choose files")}
                         </button>
                       )}
+                    </div>
+                  )}
+                  {pickedFiles.length > 0 && (
+                    <div className="mt-2 px-3 py-2 border border-phosphor-400/20 bg-phosphor-400/5">
+                      <p className="text-[10px] text-phosphor-100">
+                        {t(`已选择 ${pickedFiles.length} 个文件`, `${pickedFiles.length} file(s) selected`)}
+                      </p>
+                      <div className="mt-1 max-h-20 overflow-y-auto space-y-0.5">
+                        {pickedFiles.map((file) => (
+                          <p key={file.path} className="text-[9px] data-mono text-ink-muted truncate" title={file.path}>
+                            {file.name}
+                          </p>
+                        ))}
+                      </div>
                     </div>
                   )}
                   <p className="text-[9px] data-mono text-ink-faint mt-1.5">
                     {tab === "auto"
                       ? t("💡 系统将根据输入内容自动识别类型（URL/路径/笔记）", "💡 The type is detected from the URL, path, or note content")
                       : tab === "file"
-                        ? t("📁 选择文件后仅保存路径引用，不复制或移动源文件", "📁 The selected file is referenced by path; the source is not copied or moved")
+                        ? t("📁 可用 Ctrl / Shift 多选；仅保存路径引用，不复制或移动源文件", "📁 Use Ctrl / Shift to select multiple files; source files are only referenced, not moved")
                         : tab === "link"
                           ? t("🔗 链接将自动抓取标题（待接入）", "🔗 Link titles will be fetched automatically (coming soon)")
                           : t("📝 笔记将存储在数据库中", "📝 Notes are stored in the database")}
@@ -551,7 +592,10 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder={t("留空则使用文件名 / URL", "Leave empty to use the filename / URL")}
+                    disabled={adding || pickedFiles.length > 1}
+                    placeholder={pickedFiles.length > 1
+                      ? t("多文件将分别使用各自文件名", "Each file will use its own filename")
+                      : t("留空则使用文件名 / URL", "Leave empty to use the filename / URL")}
                     className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors"
                   />
                 </div>
@@ -566,6 +610,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
               <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-phosphor-400/15">
                 <button
                   onClick={() => setModalOpen(false)}
+                  disabled={adding}
                   className="px-3 py-1.5 text-[11px] text-ink-muted hover:text-ink border border-white/10 hover:border-white/25 transition-colors"
                 >
                   {t("取消", "Cancel")}
