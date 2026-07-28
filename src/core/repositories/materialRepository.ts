@@ -53,6 +53,14 @@ export const MaterialRepository = {
     return Number(result.changes) === 1;
   },
 
+  renameNote(folderId: string, id: string, name: string): boolean {
+    const db = getDb();
+    const result = db
+      .prepare("UPDATE materials SET name = ? WHERE id = ? AND folder_id = ? AND type = 'note';")
+      .run(name, id, folderId);
+    return Number(result.changes) === 1;
+  },
+
   delete(folderId: string, id: string): boolean {
     const db = getDb();
     const result = db

@@ -31,6 +31,7 @@ export default function FolderDetail() {
   const folder = useMissionStore((s) => s.folders.find((f) => f.id === id));
   const setFolderStatus = useMissionStore((s) => s.setFolderStatus);
   const addMaterial = useMissionStore((s) => s.addMaterial);
+  const renameNoteMaterial = useMissionStore((s) => s.renameNoteMaterial);
   const deleteMaterial = useMissionStore((s) => s.deleteMaterial);
   const deleteFolder = useMissionStore((s) => s.deleteFolder);
 
@@ -227,7 +228,9 @@ export default function FolderDetail() {
                 folderId={folder.id}
                 materials={folder.materials}
                 onAdd={(m) => addMaterial(folder.id, m)}
+                onRenameNote={(materialId, name) => renameNoteMaterial(folder.id, materialId, name)}
                 onDelete={(materialId) => deleteMaterial(folder.id, materialId)}
+                disabled={folder.status === "archived"}
               />
             </div>
             <FolderNotes folderId={folder.id} materials={folder.materials} disabled={folder.status === "archived"} />

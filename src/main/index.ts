@@ -45,6 +45,7 @@ import {
   updateTodoAssignment,
   addMaterial,
   updateNoteMaterial,
+  renameNoteMaterial,
   deleteMaterial,
   toggleAgent,
   updateAgentConfig,
@@ -684,6 +685,9 @@ function registerIpc(): void {
   );
   ipcMain.handle("material:updateNote", (_e, folderId: string, materialId: string, content: string) =>
     updateNoteMaterial(folderId, materialId, content),
+  );
+  ipcMain.handle("material:renameNote", (_e, folderId: string, materialId: string, name: string) =>
+    renameNoteMaterial(folderId, materialId, name),
   );
   ipcMain.handle("material:delete", (_e, folderId: string, materialId: string) =>
     deleteMaterial(folderId, materialId),

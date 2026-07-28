@@ -29,6 +29,7 @@ import {
   updateTodoAssignment,
   updateAgentConfig,
   updateNoteMaterial,
+  renameNoteMaterial,
 } from "../src/core/services/mutationService";
 import {
   createWorkflow,
@@ -333,6 +334,18 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
       () => updateNoteMaterial(otherFolder.id, note.id, "跨舱修改"),
       /不属于当前任务舱/,
     );
+    const renamedNote = renameNoteMaterial(folder.id, note.id, "  项目调研笔记  ");
+    assert.equal(renamedNote.name, "项目调研笔记");
+    assert.equal(
+      getFolderDetail(folder.id)?.materials.find((item) => item.id === note.id)?.name,
+      "项目调研笔记",
+    );
+    assert.throws(() => renameNoteMaterial(folder.id, note.id, "   "), /名称不能为空/);
+    assert.throws(
+      () => renameNoteMaterial(otherFolder.id, note.id, "跨舱重命名"),
+      /不属于当前任务舱/,
+    );
+    assert.throws(() => renameNoteMaterial(folder.id, material.id, "文件重命名"), /笔记不存在/);
 
     assert.throws(() => deleteFolder(folder.id), /必须先归档/);
     assert.equal(deleteMaterial(folder.id, material.id), true);

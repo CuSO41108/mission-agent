@@ -38,6 +38,7 @@ export {
   updateTodoAssignment,
   addMaterial,
   updateNoteMaterial,
+  renameNoteMaterial,
   deleteMaterial,
   toggleAgent,
   updateAgentConfig,

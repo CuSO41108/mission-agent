@@ -14,6 +14,8 @@ import {
   Trash2,
   Upload,
   AlertTriangle,
+  Pencil,
+
 } from "lucide-react";
 import type { Material, MaterialType } from "@/types";
 import { shortTime } from "@/lib/format";
@@ -32,7 +34,9 @@ interface MaterialListProps {
   folderId: string;
   materials: Material[];
   onAdd?: (m: Omit<Material, "id" | "folderId" | "addedAt">) => Promise<unknown> | void;
+  onRenameNote?: (materialId: string, name: string) => Promise<unknown> | void;
   onDelete?: (materialId: string) => Promise<unknown> | void;
+  disabled?: boolean;
 }
 
 function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
@@ -45,7 +49,7 @@ function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
   return "file";
 }
 
-export default function MaterialList({ folderId, materials, onAdd, onDelete }: MaterialListProps) {
+export default function MaterialList({ folderId, materials, onAdd, onRenameNote, onDelete, disabled = false }: MaterialListProps) {
   const { text: t } = usePreferences();
   const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<MaterialType | "auto">("auto");
@@ -55,6 +59,9 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
   const [picking, setPicking] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [availabilityMessage, setAvailabilityMessage] = useState("");
@@ -189,6 +196,30 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
     }
   };
 
+  const startRenaming = (material: Material) => {
+    setEditingId(material.id);
+    setEditingName(material.name);
+    setError("");
+  };
+
+  const renameNote = async (material: Material) => {
+    const nextName = editingName.trim();
+    if (!onRenameNote || !nextName || nextName === material.name) {
+      if (nextName === material.name) setEditingId(null);
+      return;
+    }
+    setRenamingId(material.id);
+    setError("");
+    try {
+      await onRenameNote(material.id, nextName);
+      setEditingId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
   const openMaterial = async (material: Material) => {
     setError("");
     setAvailabilityMessage("");
@@ -247,7 +278,9 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
           return (
             <div
               key={m.id}
-              onClick={() => void openMaterial(m)}
+              onClick={() => {
+                if (editingId !== m.id) void openMaterial(m);
+              }}
               role="button"
               tabIndex={0}
               onKeyDown={(event) => {
@@ -270,9 +303,25 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                 <Icon className="w-3.5 h-3.5" strokeWidth={1.5} style={{ color: meta.color }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] text-ink truncate group-hover:text-phosphor-100">
-                  {m.name}
-                </p>
+                {editingId === m.id ? (
+                  <input
+                    autoFocus
+                    value={editingName}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setEditingName(event.target.value)}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") void renameNote(m);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                    aria-label={t("笔记名称", "Note name")}
+                    className="w-full px-2 py-1 bg-obsidian-850/80 border border-phosphor-400/50 text-[12px] text-ink focus:outline-none focus:border-phosphor-400"
+                  />
+                ) : (
+                  <p className="text-[12px] text-ink truncate group-hover:text-phosphor-100">
+                    {m.name}
+                  </p>
+                )}
                 <div className="flex items-center gap-2 mt-0.5">
                   <span
                     className="text-[8px] data-mono uppercase tracking-wider"
@@ -295,6 +344,38 @@ export default function MaterialList({ folderId, materials, onAdd, onDelete }: M
                   )}
                 </div>
               </div>
+              {m.type === "note" && (editingId === m.id ? (
+                <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    onClick={() => void renameNote(m)}
+                    disabled={!editingName.trim() || renamingId === m.id}
+                    title={t("保存名称", "Save name")}
+                    className="w-7 h-7 shrink-0 flex items-center justify-center border border-jade/25 text-jade hover:bg-jade/10 transition-all disabled:opacity-40"
+                  >
+                    {renamingId === m.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                  </button>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    disabled={renamingId === m.id}
+                    title={t("取消重命名", "Cancel rename")}
+                    className="w-7 h-7 shrink-0 flex items-center justify-center border border-white/10 text-ink-muted hover:text-ink transition-all disabled:opacity-40"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startRenaming(m);
+                  }}
+                  disabled={disabled || !onRenameNote}
+                  title={t("重命名笔记", "Rename note")}
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 w-7 h-7 shrink-0 flex items-center justify-center border border-phosphor-400/25 text-phosphor-400 hover:bg-phosphor-400/10 transition-all disabled:hidden"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              ))}
               <button
                 onClick={(event) => {
                   event.stopPropagation();

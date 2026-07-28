@@ -125,6 +125,8 @@ const api = {
   ) => ipcRenderer.invoke("material:add", folderId, material) as Promise<Material>,
   updateNoteMaterial: (folderId: string, materialId: string, content: string) =>
     ipcRenderer.invoke("material:updateNote", folderId, materialId, content) as Promise<Material>,
+  renameNoteMaterial: (folderId: string, materialId: string, name: string) =>
+    ipcRenderer.invoke("material:renameNote", folderId, materialId, name) as Promise<Material>,
   deleteMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:delete", folderId, materialId) as Promise<boolean>,
   checkMaterialAvailability: (folderId: string) =>
