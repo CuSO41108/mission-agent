@@ -31,6 +31,9 @@ import type {
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 type UpdateStatus = "idle" | "checking" | "available" | "latest" | "error";
+type AppConfigPatch = Omit<Partial<AppConfig>, "system"> & {
+  system?: Partial<AppConfig["system"]>;
+};
 
 export default function Settings() {
   const { locale, setLocale, theme, setTheme, text: t } = usePreferences();
@@ -96,7 +99,7 @@ export default function Settings() {
   }
 
   // 保存局部配置
-  async function savePartial(partial: Partial<AppConfig>) {
+  async function savePartial(partial: AppConfigPatch) {
     if (!config) return null;
     setSaving(true);
     setSaveError("");
@@ -549,7 +552,7 @@ export default function Settings() {
             label={t("托盘图标", "Tray icon")}
             desc={t("开启时关闭窗口会隐藏到托盘；关闭时退出应用", "When enabled, closing hides to tray; when disabled, it quits the app")}
             checked={config?.system.trayIcon ?? true}
-            onChange={(v) => savePartial({ system: { ...config!.system, trayIcon: v } })}
+            onChange={(v) => savePartial({ system: { trayIcon: v } })}
           />
           <Field label={t("全局快捷键", "Global shortcut")}>
             <input
