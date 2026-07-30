@@ -16,6 +16,7 @@ import type {
   CreateFolderInput,
   CreateTodoInput,
   UpdateTodoAssignmentInput,
+  UpdateTodoInput,
   UpdateAgentConfigInput,
   TaskFolder,
   Material,
@@ -244,6 +245,74 @@ export function createTodo(
     assignee: todo.assignee,
     timestamp: Date.now(),
   });
+  return updated;
+}
+
+/**
+ * 修改未完成待办的内容。只有 Agent 托管关闭时允许修改，保存时在业务层再次校验。
+ */
+export function updateTodo(folderId: string, todoId: string, input: UpdateTodoInput): TaskFolder {
+  const folder = FolderRepository.findById(folderId);
+  if (!folder) throw new Error("任务舱不存在");
+  if (folder.status === "archived") throw new Error("已归档任务舱不能修改待办");
+  if (AgentConfigRepository.findByFolder(folderId)?.enabled) {
+    throw new Error("Agent 托管已开启，请先关闭托管再修改任务");
+  }
+  const current = TodoRepository.findById(todoId);
+  if (!current || current.folderId !== folderId) throw new Error("待办不存在或不属于当前任务舱");
+  if (current.done) throw new Error("已完成待办不能修改");
+
+  const title = input.title.trim();
+  if (!title) throw new Error("待办标题不能为空");
+  if (input.assignee !== "human" && input.assignee !== "agent") {
+    throw new Error("待办负责人无效");
+  }
+  const dueDate = input.dueDate === null ? null : Number(input.dueDate);
+  if (dueDate !== null && (!Number.isFinite(dueDate) || dueDate <= 0)) {
+    throw new Error("待办截止时间无效");
+  }
+  const taskTypes = ["analysis", "artifact", "follow_up", "material_organize", "material_audit", "progress_summary", "workflow", "custom"] as const;
+  const formats = ["markdown", "text", "json"] as const;
+  const agentTaskType = input.agentTaskType ?? "analysis";
+  const artifactFormat = input.artifactFormat ?? "markdown";
+  if (input.assignee === "agent" && !taskTypes.includes(agentTaskType)) {
+    throw new Error("Agent 任务类型无效");
+  }
+  if (input.assignee === "agent" && !formats.includes(artifactFormat)) {
+    throw new Error("Agent 产物格式无效");
+  }
+  const workflowId = input.assignee === "agent" && agentTaskType === "workflow"
+    ? input.workflowId?.trim() || null
+    : null;
+  if (input.assignee === "agent" && agentTaskType === "workflow" && !workflowId) {
+    throw new Error("工作流任务必须选择工作流");
+  }
+
+  const updatedTodo = {
+    ...current,
+    title,
+    dueDate,
+    assignee: input.assignee,
+    agentTaskType: input.assignee === "agent" ? agentTaskType : undefined,
+    artifactFormat: input.assignee === "agent" ? artifactFormat : undefined,
+    workflowId,
+  };
+  const db = getDb();
+  db.exec("BEGIN;");
+  try {
+    if (!TodoRepository.updateDetails(folderId, updatedTodo)) throw new Error("待办修改失败");
+    logTimeline(folderId, "human", `修改待办：${title}`, {
+      todoId,
+      assignee: input.assignee,
+      dueDate,
+    });
+    db.exec("COMMIT;");
+  } catch (error) {
+    db.exec("ROLLBACK;");
+    throw error;
+  }
+  const updated = getFolderDetail(folderId);
+  if (!updated) throw new Error("修改待办后读取任务舱失败");
   return updated;
 }
 

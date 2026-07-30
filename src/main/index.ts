@@ -39,6 +39,7 @@ import {
   getWorkflowById,
   createFolder,
   createTodo,
+  updateTodo,
   deleteFolder,
   setFolderStatus,
   toggleTodo,
@@ -685,6 +686,11 @@ function registerIpc(): void {
   );
   ipcMain.handle("material:updateNote", (_e, folderId: string, materialId: string, content: string) =>
     updateNoteMaterial(folderId, materialId, content),
+  );
+  ipcMain.handle(
+    "todo:update",
+    (_e, folderId: string, todoId: string, input: Parameters<typeof updateTodo>[2]) =>
+      updateTodo(folderId, todoId, input),
   );
   ipcMain.handle("material:renameNote", (_e, folderId: string, materialId: string, name: string) =>
     renameNoteMaterial(folderId, materialId, name),

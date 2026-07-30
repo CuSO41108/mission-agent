@@ -29,6 +29,7 @@ import {
   updateTodoAssignment,
   updateAgentConfig,
   updateNoteMaterial,
+  updateTodo,
   renameNoteMaterial,
 } from "../src/core/services/mutationService";
 import {
@@ -356,6 +357,89 @@ test("本地任务舱和材料 CRUD 保持归档/删除语义", () => {
     assert.equal(getFolderDetail(folder.id)?.status, "archived");
     assert.equal(deleteFolder(folder.id), true);
     assert.equal(getFolderDetail(folder.id), null);
+  } finally {
+    closeDatabase();
+  }
+});
+
+test("Agent 托管关闭时可修改未完成任务并校验状态边界", () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+
+  try {
+    const folder = createFolder({
+      name: "任务编辑测试舱",
+      category: "test",
+      priority: "medium",
+      deadline: null,
+      agentEnabled: false,
+    });
+    const otherFolder = createFolder({
+      name: "其他任务舱",
+      category: "test",
+      priority: "low",
+      deadline: null,
+      agentEnabled: false,
+    });
+    const created = createTodo(folder.id, {
+      title: "原始任务",
+      dueDate: null,
+      assignee: "human",
+    });
+    const todoId = created.todos[0].id;
+    const dueDate = Date.now() + 86_400_000;
+
+    const updated = updateTodo(folder.id, todoId, {
+      title: "  生成项目复盘  ",
+      dueDate,
+      assignee: "agent",
+      agentTaskType: "artifact",
+      artifactFormat: "json",
+      workflowId: "should-be-cleared",
+    });
+    assert.equal(updated.todos[0].title, "生成项目复盘");
+    assert.equal(updated.todos[0].dueDate, dueDate);
+    assert.equal(updated.todos[0].assignee, "agent");
+    assert.equal(updated.todos[0].agentTaskType, "artifact");
+    assert.equal(updated.todos[0].artifactFormat, "json");
+    assert.equal(updated.todos[0].workflowId, null);
+    assert.throws(
+      () => updateTodo(otherFolder.id, todoId, {
+        title: "跨舱修改",
+        dueDate: null,
+        assignee: "human",
+      }),
+      /不属于当前任务舱/,
+    );
+    assert.throws(
+      () => updateTodo(folder.id, todoId, { title: "  ", dueDate: null, assignee: "human" }),
+      /标题不能为空/,
+    );
+
+    toggleTodo(folder.id, todoId, true);
+    assert.throws(
+      () => updateTodo(folder.id, todoId, { title: "修改已完成任务", dueDate: null, assignee: "human" }),
+      /已完成待办不能修改/,
+    );
+
+    const pending = createTodo(folder.id, {
+      title: "等待 Agent 的任务",
+      dueDate: null,
+      assignee: "agent",
+    }).todos.find((todo) => !todo.done);
+    assert.ok(pending);
+    toggleAgent(folder.id, true);
+    assert.throws(
+      () => updateTodo(folder.id, pending.id, { title: "托管中修改", dueDate: null, assignee: "agent" }),
+      /托管已开启/,
+    );
+
+    toggleAgent(folder.id, false);
+    setFolderStatus(folder.id, "archived");
+    assert.throws(
+      () => updateTodo(folder.id, pending.id, { title: "归档后修改", dueDate: null, assignee: "agent" }),
+      /已归档任务舱不能修改待办/,
+    );
   } finally {
     closeDatabase();
   }

@@ -32,6 +32,7 @@ export {
 export {
   createFolder,
   createTodo,
+  updateTodo,
   deleteFolder,
   setFolderStatus,
   toggleTodo,

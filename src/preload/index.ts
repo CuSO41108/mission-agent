@@ -18,6 +18,7 @@ import type {
   CreateFolderInput,
   CreateTodoInput,
   UpdateTodoAssignmentInput,
+  UpdateTodoInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   FolderStatus,
@@ -114,6 +115,8 @@ const api = {
   // todo 切换完成状态
   createTodo: (folderId: string, input: CreateTodoInput) =>
     ipcRenderer.invoke("todo:create", folderId, input) as Promise<TaskFolder>,
+  updateTodo: (folderId: string, todoId: string, input: UpdateTodoInput) =>
+    ipcRenderer.invoke("todo:update", folderId, todoId, input) as Promise<TaskFolder>,
   toggleTodo: (folderId: string, todoId: string, done: boolean) =>
     ipcRenderer.invoke("todo:toggle", folderId, todoId, done) as Promise<TaskFolder>,
   updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) =>

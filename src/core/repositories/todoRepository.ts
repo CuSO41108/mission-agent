@@ -108,6 +108,25 @@ export const TodoRepository = {
     return Number(result.changes) === 1;
   },
 
+  updateDetails(folderId: string, todo: Todo): boolean {
+    const db = getDb();
+    const result = db.prepare(
+      `UPDATE todos
+       SET title = ?, due_date = ?, assignee = ?, agent_task_type = ?, artifact_format = ?, workflow_id = ?
+       WHERE id = ? AND folder_id = ?;`,
+    ).run(
+      todo.title,
+      todo.dueDate,
+      todo.assignee,
+      todo.assignee === "agent" ? todo.agentTaskType ?? "analysis" : "analysis",
+      todo.assignee === "agent" ? todo.artifactFormat ?? "markdown" : "markdown",
+      todo.assignee === "agent" ? todo.workflowId ?? null : null,
+      todo.id,
+      folderId,
+    );
+    return Number(result.changes) === 1;
+  },
+
   markAllDone(folderId: string): number {
     const db = getDb();
     const result = db

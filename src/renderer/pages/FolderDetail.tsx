@@ -218,7 +218,11 @@ export default function FolderDetail() {
         <div className="grid grid-cols-12 gap-4 p-5 h-full max-w-[1500px] mx-auto">
           {/* 左：待办 */}
           <div className="col-span-12 lg:col-span-4 panel h-full overflow-hidden flex flex-col">
-            <TodoList folderId={folder.id} todos={folder.todos} />
+            <TodoList
+              folderId={folder.id}
+              todos={folder.todos}
+              canEdit={!folder.agentConfig.enabled && folder.status !== "archived"}
+            />
           </div>
 
           {/* 中：材料 + 笔记 */}

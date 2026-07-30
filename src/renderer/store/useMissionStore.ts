@@ -11,6 +11,7 @@ import type {
   CreateFolderInput,
   CreateTodoInput,
   UpdateTodoAssignmentInput,
+  UpdateTodoInput,
   UpdateAgentConfigInput,
   UpsertIntegrationInput,
   UpsertWorkflowInput,
@@ -40,6 +41,7 @@ interface MissionState {
   createFolder: (input: CreateFolderInput) => Promise<TaskFolder>;
   deleteFolder: (folderId: string) => Promise<boolean>;
   createTodo: (folderId: string, input: CreateTodoInput) => Promise<TaskFolder>;
+  updateTodo: (folderId: string, todoId: string, input: UpdateTodoInput) => Promise<TaskFolder>;
   toggleTodo: (folderId: string, todoId: string) => Promise<void>;
   updateTodoAssignment: (folderId: string, todoId: string, input: UpdateTodoAssignmentInput) => Promise<void>;
   toggleAgent: (folderId: string) => Promise<void>;
@@ -284,6 +286,14 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
   createTodo: async (folderId, input) => {
     const folder = await window.missionConsole.createTodo(folderId, input);
+    set((state) => ({
+      folders: state.folders.map((item) => (item.id === folderId ? folder : item)),
+    }));
+    return folder;
+  },
+
+  updateTodo: async (folderId, todoId, input) => {
+    const folder = await window.missionConsole.updateTodo(folderId, todoId, input);
     set((state) => ({
       folders: state.folders.map((item) => (item.id === folderId ? folder : item)),
     }));
