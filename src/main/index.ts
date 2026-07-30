@@ -249,9 +249,16 @@ function createWindow(): void {
 
   // 点击关闭按钮时隐藏而非退出（托盘常驻）
   mainWindow.on("close", (event) => {
-    if (!isQuitting) {
+    const canHideToTray = getConfig().system.trayIcon && tray !== null && !tray.isDestroyed();
+    if (!isQuitting && canHideToTray) {
       event.preventDefault();
       mainWindow?.hide();
+      return;
+    }
+    if (!isQuitting) {
+      event.preventDefault();
+      isQuitting = true;
+      app.quit();
     }
   });
 
@@ -284,7 +291,13 @@ function createTray(): void {
     console.error(`[tray] 无法加载图标：${iconPath}`);
     return;
   }
-  tray = new Tray(icon);
+  try {
+    tray = new Tray(icon);
+  } catch (error) {
+    console.error(`[tray] 创建托盘图标失败：${iconPath}`, error);
+    tray = null;
+    return;
+  }
   tray.setToolTip(PRODUCT_NAME);
   tray.setContextMenu(
     Menu.buildFromTemplate([

@@ -547,7 +547,7 @@ export default function Settings() {
           />
           <Toggle
             label={t("托盘图标", "Tray icon")}
-            desc={t("关闭后窗口隐藏时无托盘入口", "Hide tray access when the window is closed")}
+            desc={t("开启时关闭窗口会隐藏到托盘；关闭时退出应用", "When enabled, closing hides to tray; when disabled, it quits the app")}
             checked={config?.system.trayIcon ?? true}
             onChange={(v) => savePartial({ system: { ...config!.system, trayIcon: v } })}
           />

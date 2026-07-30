@@ -68,8 +68,9 @@ function launchApp() {
     throw new Error("找不到应用构建产物。请重新安装 Mission Console。");
   }
   const electronPath = require("electron");
-  const appEntry = path.join(packagePath, "out", "main", "index.js");
-  const child = spawn(electronPath, [appEntry], {
+  // 从应用根目录启动，确保 app.getAppPath() 始终能定位 package.json 和 assets，
+  // 不受调用 mission-console 时当前工作目录的影响。
+  const child = spawn(electronPath, [packagePath], {
     detached: true,
     stdio: "ignore",
     env: { ...process.env, MISSION_CONSOLE_NODE_PATH: process.execPath, MISSION_CONSOLE_RELEASE_BUILD: "1" },
