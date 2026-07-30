@@ -35,7 +35,7 @@ interface MissionState {
   loading: boolean;
   loadError: string | null;
 
-  loadFromDb: () => Promise<void>;
+  loadFromDb: () => Promise<{ ok: true } | { ok: false; error: string }>;
   refreshFolders: (folderIds?: string[]) => Promise<void>;
   refreshWorkflows: () => Promise<void>;
   createFolder: (input: CreateFolderInput) => Promise<TaskFolder>;
@@ -212,7 +212,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
   // ============ 从 SQLite 加载数据（Phase 3） ============
   loadFromDb: async () => {
-    if (get().loading) return;
+    if (get().loading) return { ok: false, error: "数据正在刷新，请稍候" };
     set({ loading: true, loadError: null });
     try {
       const [folders, integrations, workflows] = await Promise.all([
@@ -226,13 +226,17 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         workflows,
         loaded: true,
         loading: false,
+        loadError: null,
       });
+      return { ok: true };
     } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
       set({
         loading: false,
-        loadError: err instanceof Error ? err.message : String(err),
+        loadError: error,
       });
       console.error("[store] loadFromDb 失败：", err);
+      return { ok: false, error };
     }
   },
 

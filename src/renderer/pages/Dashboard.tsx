@@ -24,6 +24,7 @@ export default function Dashboard() {
   const loadFromDb = useMissionStore((s) => s.loadFromDb);
   const loading = useMissionStore((s) => s.loading);
   const [refreshResult, setRefreshResult] = useState<"idle" | "success" | "error">("idle");
+  const [refreshError, setRefreshError] = useState("");
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const visibleFolders = folders.filter((folder) => folder.status !== "archived");
   const activities = activitiesInLast24Hours(buildAgentActivities(visibleFolders));
@@ -55,10 +56,15 @@ export default function Dashboard() {
 
   const refreshData = async () => {
     setRefreshResult("idle");
-    await loadFromDb();
-    const failed = Boolean(useMissionStore.getState().loadError);
-    setRefreshResult(failed ? "error" : "success");
-    if (!failed) setLastRefreshedAt(Date.now());
+    setRefreshError("");
+    const result = await loadFromDb();
+    if ("error" in result) {
+      setRefreshResult("error");
+      setRefreshError(result.error);
+    } else {
+      setRefreshResult("success");
+      setLastRefreshedAt(Date.now());
+    }
   };
 
   return (
@@ -91,7 +97,7 @@ export default function Dashboard() {
             </button>
             <span className={cn("text-[9px] data-mono", refreshResult === "error" ? "text-coral" : "text-ink-faint")}>
               {refreshResult === "error"
-                ? t("刷新失败，请重试", "Refresh failed; try again")
+                ? refreshError || t("刷新失败，请重试", "Refresh failed; try again")
                 : refreshResult === "success" && lastRefreshedAt
                   ? t(`已刷新 · ${shortTime(lastRefreshedAt)}`, `Refreshed · ${shortTime(lastRefreshedAt)}`)
                   : t("读取本地数据库", "Reads the local database")}
