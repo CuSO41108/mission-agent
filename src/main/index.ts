@@ -249,16 +249,13 @@ function createWindow(): void {
 
   // 点击关闭按钮时隐藏而非退出（托盘常驻）
   mainWindow.on("close", (event) => {
-    const canHideToTray = getConfig().system.trayIcon && tray !== null && !tray.isDestroyed();
-    if (!isQuitting && canHideToTray) {
+    if (!isQuitting && hasUsableTray()) {
       event.preventDefault();
       mainWindow?.hide();
       return;
     }
     if (!isQuitting) {
-      event.preventDefault();
       isQuitting = true;
-      app.quit();
     }
   });
 
@@ -282,6 +279,10 @@ function createWindow(): void {
 }
 
 // ============ 托盘 ============
+function hasUsableTray(): boolean {
+  return getConfig().system.trayIcon && tray !== null && !tray.isDestroyed();
+}
+
 function createTray(): void {
   tray?.destroy();
   tray = null;
@@ -1035,9 +1036,9 @@ app.on("activate", () => {
   }
 });
 
-// 关闭所有窗口时不退出（托盘常驻）
+// 托盘不可用时，窗口销毁后必须结束整个应用。
 app.on("window-all-closed", () => {
-  // 故意空实现：Raycast 风格常驻
+  if (!hasUsableTray()) app.quit();
 });
 
 // 退出前清理
