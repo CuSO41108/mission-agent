@@ -738,11 +738,26 @@ function registerIpc(): void {
       title: "选择要引用的材料文件",
       properties: ["openFile", "multiSelections"],
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
+    if (result.canceled || result.filePaths.length === 0) return [];
     return result.filePaths.map((filePath) => ({
       path: filePath,
       name: path.basename(filePath),
     }));
+  });
+  ipcMain.handle("file:inspectMaterial", (_e, filePath: string) => {
+    const candidate = filePath.trim();
+    if (!candidate || !path.isAbsolute(candidate)) {
+      return { ok: false as const, error: "请输入完整的本地文件路径" };
+    }
+    try {
+      if (!fs.statSync(candidate).isFile()) {
+        return { ok: false as const, error: "所选路径不是文件" };
+      }
+      const resolvedPath = fs.realpathSync(candidate);
+      return { ok: true as const, path: resolvedPath, name: path.basename(resolvedPath) };
+    } catch {
+      return { ok: false as const, error: "文件不存在或当前不可访问" };
+    }
   });
   ipcMain.handle("material:open", async (_e, folderId: string, materialId: string) => {
     const material = getFolderDetail(folderId)?.materials.find((item) => item.id === materialId);

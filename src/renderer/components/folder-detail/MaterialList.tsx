@@ -39,6 +39,23 @@ interface MaterialListProps {
   disabled?: boolean;
 }
 
+type MaterialInputTab = "file" | "link" | "note";
+
+function normalizeLocalPath(filePath: string): string {
+  return filePath.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
+
+function defaultLinkName(value: string): string {
+  const url = new URL(value);
+  const lastSegment = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) ?? "");
+  return lastSegment || url.hostname;
+}
+
+function defaultNoteName(value: string): string {
+  const firstLine = value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+}
+
 function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
   if (tab !== "auto") return tab;
   const trimmed = input.trim();
@@ -52,7 +69,7 @@ function detectType(input: string, tab: MaterialType | "auto"): MaterialType {
 export default function MaterialList({ folderId, materials, onAdd, onRenameNote, onDelete, disabled = false }: MaterialListProps) {
   const { text: t } = usePreferences();
   const [modalOpen, setModalOpen] = useState(false);
-  const [tab, setTab] = useState<MaterialType | "auto">("auto");
+  const [tab, setTab] = useState<MaterialInputTab>("file");
   const [input, setInput] = useState("");
   const [name, setName] = useState("");
   const [pickedFiles, setPickedFiles] = useState<Array<{ path: string; name: string }>>([]);
@@ -66,7 +83,6 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
   const [notice, setNotice] = useState("");
   const [availabilityMessage, setAvailabilityMessage] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const [dropping, setDropping] = useState(false);
   const [availability, setAvailability] = useState<Record<string, "available" | "missing">>({});
 
   useEffect(() => {
@@ -98,7 +114,71 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
     setInput("");
     setName("");
     setPickedFiles([]);
-    setTab("auto");
+    setTab("file");
+    setError("");
+  };
+
+  const hasDraft = Boolean(input.trim() || name.trim() || pickedFiles.length);
+
+  const closeModal = () => {
+    if (adding) return;
+    if (hasDraft && !window.confirm(t("放弃未添加的材料？", "Discard materials that have not been added?"))) return;
+    reset();
+    setModalOpen(false);
+  };
+
+  const existingPaths = useMemo(
+    () => new Set(materials
+      .filter((material) => material.type !== "link" && material.type !== "note")
+      .map((material) => normalizeLocalPath(material.content))),
+    [materials],
+  );
+
+  const linkValidationError = useMemo(() => {
+    if (tab !== "link" || !input.trim()) return "";
+    try {
+      const url = new URL(input.trim());
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? ""
+        : t("链接仅支持 HTTP/HTTPS", "Only HTTP/HTTPS links are supported");
+    } catch {
+      return t("请输入完整的 HTTP/HTTPS 链接", "Enter a complete HTTP/HTTPS URL");
+    }
+  }, [input, tab, t]);
+
+  const stageFiles = async (files: Array<{ path: string; name: string }>) => {
+    if (files.length === 0) return;
+    setPicking(true);
+    setError("");
+    try {
+      const currentPaths = new Set(pickedFiles.map((file) => normalizeLocalPath(file.path)));
+      const next: Array<{ path: string; name: string }> = [];
+      let skipped = 0;
+      for (const file of files) {
+        const inspected = await window.missionConsole.inspectMaterialFile(file.path);
+        if (!inspected.ok) {
+          setError(t(`“${file.name}”：${inspected.error}`, `“${file.name}”: ${inspected.error}`));
+          continue;
+        }
+        const normalized = normalizeLocalPath(inspected.path);
+        if (existingPaths.has(normalized) || currentPaths.has(normalized)) {
+          skipped += 1;
+          continue;
+        }
+        currentPaths.add(normalized);
+        next.push({ path: inspected.path, name: inspected.name });
+      }
+      if (next.length) {
+        setTab("file");
+        setPickedFiles((current) => [...current, ...next]);
+        setInput("");
+      }
+      if (skipped > 0) {
+        setNotice(t(`已跳过 ${skipped} 个重复文件。`, `Skipped ${skipped} duplicate file(s).`));
+      }
+    } finally {
+      setPicking(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -107,8 +187,9 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
     setAdding(true);
     try {
       setError("");
-      if (pickedFiles.length > 0) {
-        const filesToAdd = pickedFiles;
+      if (tab === "file" && pickedFiles.length > 0) {
+        const filesToAdd = pickedFiles.filter((file) => !existingPaths.has(normalizeLocalPath(file.path)));
+        const skipped = pickedFiles.length - filesToAdd.length;
         let added = 0;
         try {
           for (const file of filesToAdd) {
@@ -131,13 +212,26 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
           ));
         }
         setNotice(t(
-          `已添加 ${added} 个本地文件引用；磁盘原文件未移动。`,
-          `Added ${added} local file reference(s); source files were not moved.`,
+          `已添加 ${added} 个本地文件引用${skipped ? `，跳过 ${skipped} 个重复文件` : ""}；磁盘原文件未移动。`,
+          `Added ${added} local file reference(s)${skipped ? ` and skipped ${skipped} duplicate(s)` : ""}; source files were not moved.`,
         ));
       } else {
-        const type = detectType(value, tab === "file" ? "auto" : tab);
-        const finalName = name.trim() || (type === "link" ? value : value.split(/[\\/]/).pop() || value);
-        await onAdd?.({ type, name: finalName, content: value });
+        if (tab === "file") {
+          const inspected = await window.missionConsole.inspectMaterialFile(value);
+          if (!inspected.ok) throw new Error(inspected.error);
+          if (existingPaths.has(normalizeLocalPath(inspected.path))) throw new Error(t("该文件已在当前任务舱中", "This file is already in the current folder"));
+          await onAdd?.({ type: detectType(inspected.path, "auto"), name: name.trim() || inspected.name, content: inspected.path });
+          setNotice(t("已添加 1 个本地文件引用；磁盘原文件未移动。", "Added 1 local file reference; the source file was not moved."));
+        } else if (tab === "link") {
+          let parsed: URL;
+          try { parsed = new URL(value); } catch { throw new Error(t("请输入完整的 HTTP/HTTPS 链接", "Enter a complete HTTP/HTTPS URL")); }
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error(t("链接仅支持 HTTP/HTTPS", "Only HTTP/HTTPS links are supported"));
+          await onAdd?.({ type: "link", name: name.trim() || defaultLinkName(value), content: value });
+        } else {
+          const noteName = name.trim() || defaultNoteName(value);
+          if (!noteName) throw new Error(t("笔记内容不能为空", "Note content cannot be empty"));
+          await onAdd?.({ type: "note", name: noteName, content: value });
+        }
       }
       reset();
       setModalOpen(false);
@@ -153,11 +247,8 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
     setError("");
     try {
       const picked = await window.missionConsole.pickMaterialFile();
-      if (picked.length === 0) return;
-      setTab("file");
-      setPickedFiles(picked);
-      setInput(picked.length === 1 ? picked[0].path : "");
-      if (!name.trim() && picked.length === 1) setName(picked[0].name);
+      if (!Array.isArray(picked) || picked.length === 0) return;
+      await stageFiles(picked);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -165,34 +256,15 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
     }
   };
 
-  const addDroppedFiles = async (files: File[]) => {
-    if (!onAdd || dropping || files.length === 0) return;
-    setDropping(true);
-    setError("");
-    setNotice("");
-    setAvailabilityMessage("");
-    let added = 0;
-    try {
-      for (const file of files) {
-        const filePath = window.missionConsole.getPathForDroppedFile(file);
-        if (!filePath) throw new Error(t(`无法读取“${file.name}”的本地路径`, `Could not read the local path for “${file.name}”`));
-        await onAdd({
-          type: detectType(filePath, "auto"),
-          name: file.name || filePath.split(/[\\/]/).pop() || filePath,
-          content: filePath,
-        });
-        added += 1;
-      }
-      setNotice(t(`已添加 ${added} 个本地文件引用；磁盘原文件未移动。`, `Added ${added} local file reference(s); source files were not moved.`));
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      setError(added > 0
-        ? t(`已添加 ${added} 个文件，随后失败：${detail}`, `Added ${added} file(s), then failed: ${detail}`)
-        : detail);
-    } finally {
-      setDropping(false);
-      setDragActive(false);
-    }
+  const stageDroppedFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const localFiles = files.map((file) => ({
+      path: window.missionConsole.getPathForDroppedFile(file),
+      name: file.name,
+    })).filter((file) => file.path);
+    setModalOpen(true);
+    setDragActive(false);
+    await stageFiles(localFiles);
   };
 
   const removeMaterial = async (material: Material) => {
@@ -255,14 +327,12 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
     }
   };
 
-  const placeholder =
-    tab === "link"
-      ? "https://example.com/report.pdf"
-      : tab === "note"
-        ? t("在此输入笔记内容…", "Write your note here…")
-        : t("D:/Docs/report.pdf 或拖拽文件路径", "D:/Docs/report.pdf or drop a file path");
-  const tabs: { key: MaterialType | "auto"; label: string }[] = [
-    { key: "auto", label: t("自动识别", "Auto detect") },
+  const placeholder = tab === "link"
+    ? "https://example.com/report.pdf"
+    : tab === "note"
+      ? t("在此输入笔记内容…", "Write your note here…")
+      : t("可选：粘贴完整的本地文件路径", "Optional: paste a complete local file path");
+  const tabs: { key: MaterialInputTab; label: string }[] = [
     { key: "file", label: t("本地文件", "Local file") },
     { key: "link", label: t("链接", "Link") },
     { key: "note", label: t("笔记", "Note") },
@@ -435,23 +505,19 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
           }}
           onDrop={(event) => {
             event.preventDefault();
-            void addDroppedFiles(Array.from(event.dataTransfer.files));
+            void stageDroppedFiles(Array.from(event.dataTransfer.files));
           }}
-          disabled={dropping}
           className={cn(
             "w-full mt-2 px-3 py-2 text-[11px] text-left border border-dashed transition-all flex items-center gap-2",
             dragActive
               ? "text-phosphor-400 border-phosphor-400/60 bg-phosphor-400/8"
               : "text-ink-faint border-white/5 hover:text-phosphor-400 hover:border-phosphor-400/30",
-            dropping && "opacity-60 cursor-wait",
           )}
         >
-          {dropping ? <Loader2 className="w-3 h-3 animate-spin" /> : dragActive ? <Upload className="w-3 h-3" /> : <Plus className="w-3 h-3" strokeWidth={1.5} />}
-          {dropping
-            ? t("正在添加文件引用…", "Adding file references…")
-            : dragActive
-              ? t("松开以添加本地文件引用", "Drop to add local file references")
-              : t("添加材料 / 拖拽本地文件至此", "Add material / drop local files here")}
+          {dragActive ? <Upload className="w-3 h-3" /> : <Plus className="w-3 h-3" strokeWidth={1.5} />}
+          {dragActive
+            ? t("松开以预览本地文件", "Drop to preview local files")
+            : t("添加材料 / 拖拽本地文件至此", "Add material / drop local files here")}
         </button>
         {error && <p className="px-2 py-1 text-[10px] text-coral">{error}</p>}
         {availabilityMessage && <p className="px-2 py-1 text-[10px] text-amber-300">{availabilityMessage}</p>}
@@ -466,9 +532,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-obsidian-950/70 backdrop-blur-sm"
-            onClick={() => {
-              if (!adding) setModalOpen(false);
-            }}
+            onClick={closeModal}
           >
             <motion.div
               initial={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -483,7 +547,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                   {t("添加材料", "Add material")}
                 </h3>
                 <button
-                  onClick={() => setModalOpen(false)}
+                  onClick={closeModal}
                   disabled={adding}
                   className="w-6 h-6 flex items-center justify-center text-ink-faint hover:text-ink border border-phosphor-400/15 hover:border-phosphor-400/40 transition-colors"
                 >
@@ -500,6 +564,9 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                     onClick={() => {
                       setTab(tabOption.key);
                       setPickedFiles([]);
+                      setInput("");
+                      setName("");
+                      setError("");
                     }}
                     className={cn(
                       "px-2.5 py-1 text-[11px] border transition-colors",
@@ -528,6 +595,30 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                       rows={4}
                       className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors resize-none"
                     />
+                  ) : tab === "file" ? (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => void pickFile()}
+                        onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "link"; }}
+                        onDrop={(event) => { event.preventDefault(); void stageDroppedFiles(Array.from(event.dataTransfer.files)); }}
+                        disabled={picking || adding}
+                        className="w-full min-h-20 border border-dashed border-phosphor-400/30 bg-phosphor-400/[0.03] text-[11px] text-ink-muted hover:text-phosphor-100 hover:border-phosphor-400/60 transition-colors flex flex-col items-center justify-center gap-2"
+                      >
+                        {picking ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderOpen className="w-4 h-4" />}
+                        {t("选择文件（支持多选）", "Choose files (multiple allowed)")}
+                      </button>
+                      <div className="flex items-center gap-2 text-[9px] text-ink-faint before:h-px before:flex-1 before:bg-white/10 after:h-px after:flex-1 after:bg-white/10">
+                        {t("或粘贴路径", "or paste a path")}
+                      </div>
+                      <input
+                        value={input}
+                        disabled={adding || pickedFiles.length > 0}
+                        onChange={(event) => setInput(event.target.value)}
+                        placeholder={placeholder}
+                        className="w-full px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors data-mono"
+                      />
+                    </div>
                   ) : (
                     <div className="flex gap-2">
                       <input
@@ -541,18 +632,6 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                         placeholder={placeholder}
                         className="flex-1 min-w-0 px-3 py-2 bg-obsidian-850/80 border border-phosphor-400/20 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:border-phosphor-400/60 transition-colors data-mono"
                       />
-                      {(tab === "file" || tab === "auto") && (
-                        <button
-                          type="button"
-                          onClick={() => void pickFile()}
-                          disabled={picking || adding}
-                          title={t("可一次选择多个文件", "Select multiple files at once")}
-                          className="btn-ghost shrink-0"
-                        >
-                          {picking ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
-                          {t("选择文件（可多选）", "Choose files")}
-                        </button>
-                      )}
                     </div>
                   )}
                   {pickedFiles.length > 0 && (
@@ -562,22 +641,23 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                       </p>
                       <div className="mt-1 max-h-20 overflow-y-auto space-y-0.5">
                         {pickedFiles.map((file) => (
-                          <p key={file.path} className="text-[9px] data-mono text-ink-muted truncate" title={file.path}>
-                            {file.name}
-                          </p>
+                          <div key={file.path} className="flex items-center gap-2 text-[9px] data-mono text-ink-muted" title={file.path}>
+                            <span className="truncate flex-1">{file.name}</span>
+                            <button type="button" onClick={() => setPickedFiles((current) => current.filter((item) => item.path !== file.path))} className="text-ink-faint hover:text-coral" title={t("移除", "Remove")}><X className="w-3 h-3" /></button>
+                          </div>
                         ))}
                       </div>
+                      <button type="button" onClick={() => setPickedFiles([])} className="mt-2 text-[9px] text-ink-faint hover:text-coral">{t("清空全部", "Clear all")}</button>
                     </div>
                   )}
                   <p className="text-[9px] data-mono text-ink-faint mt-1.5">
-                    {tab === "auto"
-                      ? t("💡 系统将根据输入内容自动识别类型（URL/路径/笔记）", "💡 The type is detected from the URL, path, or note content")
-                      : tab === "file"
-                        ? t("📁 可用 Ctrl / Shift 多选；仅保存路径引用，不复制或移动源文件", "📁 Use Ctrl / Shift to select multiple files; source files are only referenced, not moved")
+                    {tab === "file"
+                        ? t("📁 仅保存路径引用；移动或删除源文件后引用会失效", "📁 Only the path is saved; moving or deleting the source file breaks the reference")
                         : tab === "link"
-                          ? t("🔗 链接将自动抓取标题（待接入）", "🔗 Link titles will be fetched automatically (coming soon)")
+                          ? t("🔗 仅支持完整的 HTTP/HTTPS 链接", "🔗 Complete HTTP/HTTPS URLs only")
                           : t("📝 笔记将存储在数据库中", "📝 Notes are stored in the database")}
                   </p>
+                  {linkValidationError && <p className="text-[9px] text-coral mt-1.5">{linkValidationError}</p>}
                   {pickedFiles.length > 1 && (
                     <p className="text-[9px] data-mono text-phosphor-300 mt-1.5">
                       {t(`已选择 ${pickedFiles.length} 个文件，添加时将分别创建引用`, `${pickedFiles.length} files selected; each will be added as a reference.`)}
@@ -609,7 +689,7 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
               {/* 底部 */}
               <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-phosphor-400/15">
                 <button
-                  onClick={() => setModalOpen(false)}
+                  onClick={closeModal}
                   disabled={adding}
                   className="px-3 py-1.5 text-[11px] text-ink-muted hover:text-ink border border-white/10 hover:border-white/25 transition-colors"
                 >
@@ -617,10 +697,10 @@ export default function MaterialList({ folderId, materials, onAdd, onRenameNote,
                 </button>
                 <button
                   onClick={() => void handleSubmit()}
-                  disabled={(!input.trim() && pickedFiles.length === 0) || adding}
+                  disabled={(!input.trim() && pickedFiles.length === 0) || Boolean(linkValidationError) || adding}
                   className={cn(
                     "px-3 py-1.5 text-[11px] border transition-all flex items-center gap-1.5",
-                    (input.trim() || pickedFiles.length > 0) && !adding
+                    (input.trim() || pickedFiles.length > 0) && !linkValidationError && !adding
                       ? "bg-phosphor-400/12 border-phosphor-400/50 text-phosphor-100 hover:bg-phosphor-400/20"
                       : "opacity-40 cursor-not-allowed bg-phosphor-400/5 border-phosphor-400/20 text-phosphor-400/40"
                   )}

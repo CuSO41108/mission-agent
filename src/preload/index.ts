@@ -136,6 +136,10 @@ const api = {
     ipcRenderer.invoke("material:checkAvailability", folderId) as Promise<MaterialAvailabilityItem[]>,
   pickMaterialFile: () =>
     ipcRenderer.invoke("file:pickMaterial") as Promise<Array<{ path: string; name: string }>>,
+  inspectMaterialFile: (filePath: string) =>
+    ipcRenderer.invoke("file:inspectMaterial", filePath) as Promise<
+      { ok: true; path: string; name: string } | { ok: false; error: string }
+    >,
   getPathForDroppedFile: (file: File) => webUtils.getPathForFile(file),
   openMaterial: (folderId: string, materialId: string) =>
     ipcRenderer.invoke("material:open", folderId, materialId) as Promise<
