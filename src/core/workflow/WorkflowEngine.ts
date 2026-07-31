@@ -32,7 +32,8 @@ import {
 export interface WorkflowRuntime {
   runAgent: (folderId: string) => Promise<{ ok: boolean; summary?: string; error?: string }>;
   runAgentNode?: (request: {
-    folderId: string;
+    /** 纯 Prompt / 上一节点输入模式不要求绑定任务舱。 */
+    folderId: string | null;
     node: WorkflowGraphNode;
     input: WorkflowDataEnvelope;
     runId: string;
@@ -103,9 +104,15 @@ function triggerMatches(workflow: WorkflowRule, event: WorkflowEvent): boolean {
   return workflow.conditions.every((condition) => conditionMatches(condition, event));
 }
 
-function resolveFolderId(workflow: WorkflowRule, node: WorkflowGraphNode, event: WorkflowEvent): string {
+function resolveFolderId(workflow: WorkflowRule, node: WorkflowGraphNode, event: WorkflowEvent): string | null {
   const folderId = node.config.folderId || event.folderId || workflow.trigger.folderId;
-  if (!folderId || !FolderRepository.findById(folderId)) throw new Error("工作流动作缺少有效任务舱");
+  if (!folderId) return null;
+  if (!FolderRepository.findById(folderId)) throw new Error("工作流动作引用的任务舱不存在");
+  return folderId;
+}
+
+function requireFolderId(folderId: string | null, node: WorkflowGraphNode): string {
+  if (!folderId) throw new Error(`节点“${node.label}”需要选择或继承一个有效任务舱`);
   return folderId;
 }
 
@@ -127,7 +134,6 @@ async function executeNode(
   changedFolderIds: Set<string>,
 ): Promise<{ message: string; output: WorkflowDataEnvelope; outputRef?: string | null }> {
   const folderId = resolveFolderId(workflow, node, event);
-  changedFolderIds.add(folderId);
   switch (node.type) {
     case "trigger":
       return { message: node.label, output: input };
@@ -145,48 +151,56 @@ async function executeNode(
       return { message: result.summary || `${node.label} 执行完成`, output: result.output, outputRef: result.outputRef };
     }
     case "create_todo": {
+      const targetFolderId = requireFolderId(folderId, node);
       const title = node.config.title?.trim() || node.label.trim();
       if (!title) throw new Error("创建待办动作缺少标题");
       const source = `workflow:${workflow.id}:${idempotencyKey}`;
       const existing = getDb().prepare("SELECT id FROM todos WHERE source = ? LIMIT 1;").get(source);
       if (!existing) {
-        createTodo(folderId, {
+        createTodo(targetFolderId, {
           title,
           dueDate: null,
           assignee: node.config.assignee ?? "human",
           source,
         }, "system");
       }
+      changedFolderIds.add(targetFolderId);
       return { message: `创建待办：${title}`, output: appendStepResult(input, node, { title, source }) };
     }
     case "set_folder_status": {
+      const targetFolderId = requireFolderId(folderId, node);
       const status = node.config.status as FolderStatus | undefined;
       if (!status) throw new Error("修改状态动作缺少目标状态");
-      setFolderStatus(folderId, status, "system");
+      setFolderStatus(targetFolderId, status, "system");
+      changedFolderIds.add(targetFolderId);
       return { message: `任务舱状态改为 ${status}`, output: appendStepResult(input, node, { status }) };
     }
     case "run_agent": {
+      const targetFolderId = requireFolderId(folderId, node);
       if (!runtime) throw new Error("工作流运行时尚未注册");
-      const config = AgentConfigRepository.findByFolder(folderId);
+      const config = AgentConfigRepository.findByFolder(targetFolderId);
       if (!config?.enabled) throw new Error("目标任务舱的 Agent 未启用");
-      const result = await runtime.runAgent(folderId);
+      const result = await runtime.runAgent(targetFolderId);
+      changedFolderIds.add(targetFolderId);
       if (!result.ok) throw new Error(result.error || "Agent 执行失败");
       const summary = result.summary || "Agent 执行完成";
       return { message: summary, output: appendStepResult(input, node, { summary }) };
     }
     case "write_timeline": {
+      const targetFolderId = requireFolderId(folderId, node);
       const message = node.config.message?.trim() || node.label;
       const existing = getDb().prepare("SELECT id FROM timeline WHERE meta LIKE ? LIMIT 1;").get(`%"idempotencyKey":"${idempotencyKey}"%`);
       if (!existing) {
         TimelineRepository.insert({
           id: `tl-wf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          folderId,
+          folderId: targetFolderId,
           actor: "system",
           action: message,
           timestamp: Date.now(),
           meta: { workflowId: workflow.id, idempotencyKey },
         });
       }
+      changedFolderIds.add(targetFolderId);
       return { message, output: appendStepResult(input, node, { message }) };
     }
     case "notify": {
@@ -210,8 +224,10 @@ async function executeNode(
       };
     }
     case "save_artifact": {
+      const targetFolderId = requireFolderId(folderId, node);
       if (!runtime?.saveArtifact) throw new Error("尚未注册工作流产物存储运行时");
-      const result = await runtime.saveArtifact({ folderId, node, input, runId, stepId: node.id, idempotencyKey });
+      const result = await runtime.saveArtifact({ folderId: targetFolderId, node, input, runId, stepId: node.id, idempotencyKey });
+      changedFolderIds.add(targetFolderId);
       return { message: `保存产物：${node.config.artifactName || node.label}`, output: result.output, outputRef: result.outputRef };
     }
   }

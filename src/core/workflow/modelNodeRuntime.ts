@@ -18,7 +18,7 @@ export interface WorkflowModelRuntimeOptions {
 }
 
 interface AgentNodeRequest {
-  folderId: string;
+  folderId: string | null;
   node: WorkflowGraphNode;
   input: WorkflowDataEnvelope;
   runId: string;
@@ -52,11 +52,13 @@ function triggerMaterialId(input: WorkflowDataEnvelope): string | null {
   return typeof data?.trigger?.materialId === "string" ? data.trigger.materialId : null;
 }
 
-function selectImageMaterials(folderId: string, node: WorkflowGraphNode, input: WorkflowDataEnvelope): Material[] {
-  const folder = getFolderDetail(folderId);
-  if (!folder) throw new Error("Agent 节点找不到目标任务舱");
+function selectImageMaterials(folderId: string | null, node: WorkflowGraphNode, input: WorkflowDataEnvelope): Material[] {
   const agent = node.config.agent;
   if (!agent) return [];
+  if (agent.inputSource === "previous") return [];
+  if (!folderId) throw new Error(`Agent 节点“${node.label}”读取任务舱材料时必须选择或继承任务舱`);
+  const folder = getFolderDetail(folderId);
+  if (!folder) throw new Error("Agent 节点找不到目标任务舱");
   const images = folder.materials.filter(isImageMaterial);
   if (agent.inputSource === "folder_images") return images;
   if (agent.inputSource === "selected_materials") {
@@ -203,6 +205,7 @@ export function createWorkflowModelRuntime(options: WorkflowModelRuntimeOptions)
     },
 
     saveArtifact: async (request: AgentNodeRequest) => {
+      if (!request.folderId) throw new Error(`保存产物节点“${request.node.label}”必须选择或继承任务舱`);
       const format = request.node.config.artifactFormat ?? "markdown";
       const extension = format === "markdown" ? "md" : format === "json" ? "json" : "txt";
       const folderDirectory = path.join(options.artifactRoot, safeSegment(request.folderId, "folder"));

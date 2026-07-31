@@ -687,6 +687,48 @@ test("工作流使用同一 runId 从 Agent 节点 Checkpoint 断点续跑", asy
   }
 });
 
+test("纯 Prompt Agent 工作流无需绑定任务舱即可运行", async () => {
+  initDatabase({ dbPath: ":memory:" });
+  migrateDatabase();
+  let receivedFolderId: string | null | undefined;
+  const dispose = registerWorkflowRuntime({
+    runAgent: async () => ({ ok: true, summary: "legacy" }),
+    runAgentNode: async ({ folderId, input }) => {
+      receivedFolderId = folderId;
+      return { ok: true, summary: "纯 Prompt 完成", output: { version: 1, data: { promptOnly: true, input: input.data } } };
+    },
+    notify: () => undefined,
+    changed: () => undefined,
+  });
+  try {
+    const actionId = "prompt-only-agent";
+    const workflow = createWorkflow({
+      name: "无任务舱 Prompt 工作流",
+      enabled: false,
+      trigger: { type: "manual", label: "手动执行", folderId: null },
+      conditions: [],
+      actions: [{
+        id: actionId,
+        type: "agent",
+        label: "纯 Prompt 节点",
+        config: { agent: { modelProfileId: "test-model", role: "测试角色", prompt: "只运行提示词", inputSource: "previous", outputFormat: "json" } },
+      }],
+      layout: [
+        { id: "node-trigger", kind: "trigger", refId: "trigger", x: 0, y: 0 },
+        { id: "node-agent", kind: "action", refId: actionId, x: 180, y: 0 },
+      ],
+    });
+
+    const run = await runWorkflow(workflow.id, { type: "manual", folderId: null, timestamp: Date.now() });
+    assert.equal(run.status, "success");
+    assert.equal(receivedFolderId, null);
+    assert.equal(WorkflowStepRunRepository.find(run.id, actionId)?.output?.data && (WorkflowStepRunRepository.find(run.id, actionId)!.output!.data as { promptOnly: boolean }).promptOnly, true);
+  } finally {
+    dispose();
+    closeDatabase();
+  }
+});
+
 test("飞书群机器人凭据不落库，并仅向适配器授权目标发送文本", async () => {
   initDatabase({ dbPath: ":memory:" });
   migrateDatabase();
