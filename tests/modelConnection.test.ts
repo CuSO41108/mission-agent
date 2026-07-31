@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { testModelProfileConnection } from "../src/core/config/deepseekClient";
 import type { ModelProfile } from "../src/core/config/defaultConfig";
+import { findWorkflowModelProfileReferences } from "../src/core/workflow/modelProfileReferences";
 
 const profile: ModelProfile = {
   id: "multimodal-test",
@@ -28,4 +29,24 @@ test("模型配置连接测试会在指定时间内中止", async () => {
 test("模型配置连接测试在请求前校验通用配置", async () => {
   await assert.rejects(() => testModelProfileConnection({ ...profile, model: "" }), /模型 ID 为空/);
   await assert.rejects(() => testModelProfileConnection({ ...profile, baseUrl: "" }), /Base URL 为空/);
+});
+
+test("删除模型前能同时发现旧动作和图节点中的工作流引用并去重", () => {
+  const agent = { modelProfileId: profile.id, role: "", prompt: "", inputSource: "previous" as const, outputFormat: "text" as const };
+  const workflows = [{
+    name: "图片工作流",
+    actions: [{ id: "agent-action", type: "agent" as const, label: "识图", config: { agent } }],
+    graph: {
+      schemaVersion: 1 as const,
+      nodes: [{ id: "agent-action", type: "agent" as const, label: "识图", x: 0, y: 0, config: { agent } }],
+      edges: [],
+    },
+  }, {
+    name: "无关工作流",
+    actions: [],
+    graph: { schemaVersion: 1 as const, nodes: [], edges: [] },
+  }];
+
+  assert.deepEqual(findWorkflowModelProfileReferences(workflows, profile.id), ["图片工作流"]);
+  assert.deepEqual(findWorkflowModelProfileReferences(workflows, "unused"), []);
 });

@@ -18,6 +18,7 @@ import {
   Sun,
   Download,
   Plus,
+  Trash2,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -179,6 +180,29 @@ export default function Settings() {
       setProfileTest((current) => ({
         ...current,
         [profileId]: { status: "error", message: error instanceof Error ? error.message : String(error) },
+      }));
+    }
+  }
+
+  async function deleteModelProfile(profile: ModelProfile) {
+    const persisted = config?.models.profiles.some((item) => item.id === profile.id) ?? false;
+    if (persisted && !window.confirm(`永久删除模型配置“${profile.name}”？对应 API Key 也会从安全存储中清除。`)) return;
+    if (!persisted) {
+      setProfileDrafts((profiles) => profiles.filter((item) => item.id !== profile.id));
+      setProfileKeys((keys) => { const next = { ...keys }; delete next[profile.id]; return next; });
+      setProfileTest((tests) => { const next = { ...tests }; delete next[profile.id]; return next; });
+      return;
+    }
+    try {
+      const merged = await window.missionConsole.deleteModelProfile(profile.id);
+      setConfigState(merged);
+      setProfileDrafts(merged.models.profiles.filter((item) => item.id !== "deepseek-default"));
+      setProfileKeys((keys) => { const next = { ...keys }; delete next[profile.id]; return next; });
+      setProfileTest((tests) => { const next = { ...tests }; delete next[profile.id]; return next; });
+    } catch (error) {
+      setProfileTest((current) => ({
+        ...current,
+        [profile.id]: { status: "error", message: error instanceof Error ? error.message : String(error) },
       }));
     }
   }
@@ -468,6 +492,9 @@ export default function Settings() {
                   <div className="flex items-center gap-2">
                     <button className="btn-ghost" onClick={() => void testModelProfile(profile.id)} disabled={testing?.status === "testing"}>
                       {testing?.status === "testing" && <Loader2 className="w-3 h-3 animate-spin" />}{t("保存并测试", "Save & test")}
+                    </button>
+                    <button className="btn-ghost text-rose-300" onClick={() => void deleteModelProfile(profile)} disabled={testing?.status === "testing"}>
+                      <Trash2 className="w-3 h-3" />{t("删除模型", "Delete model")}
                     </button>
                     {testing?.message && <span className={cn("text-[10px]", testing.status === "success" ? "text-jade" : "text-rose-300")}>{testing.message}</span>}
                   </div>

@@ -81,6 +81,7 @@ import {
 import { DEEPSEEK_REQUEST_TIMEOUT_MS } from "./schedulerPolicy";
 import {
   createWorkflowModelRuntime,
+  findWorkflowModelProfileReferences,
   registerWorkflowRuntime,
   resumeWorkflowRun,
   runDueScheduledWorkflows,
@@ -212,6 +213,32 @@ function publicConfig(config: AppConfig): AppConfig {
 
 function persistConfig(config: AppConfig): void {
   saveConfig(configPath(), publicConfig(config));
+}
+
+function deleteModelProfile(profileId: string): AppConfig {
+  if (profileId === "deepseek-default") throw new Error("默认模型配置不能删除");
+  const config = getConfig();
+  const profile = config.models.profiles.find((item) => item.id === profileId);
+  if (!profile) throw new Error("模型配置不存在或已被删除");
+  if (config.models.defaultPlannerProfileId === profileId) {
+    throw new Error("该模型正作为默认规划模型使用，请先更换默认模型");
+  }
+  const references = findWorkflowModelProfileReferences(getAllWorkflows(), profileId);
+  if (references.length > 0) {
+    throw new Error(`模型“${profile.name}”仍被以下工作流引用：${references.join("、")}。请先更换这些节点的模型`);
+  }
+
+  if (profile.apiKey) {
+    const secrets = loadModelProfileSecrets();
+    delete secrets[profileId];
+    saveModelProfileSecrets(secrets);
+  }
+  appConfig = {
+    ...config,
+    models: { ...config.models, profiles: config.models.profiles.filter((item) => item.id !== profileId) },
+  };
+  persistConfig(appConfig);
+  return publicConfig(appConfig);
 }
 
 // ============ 应用标识 ============
@@ -656,6 +683,7 @@ function registerIpc(): void {
       return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   });
+  ipcMain.handle("model-profile:delete", (_e, profileId: string) => deleteModelProfile(profileId));
 
   // Copilot：模型只在用户显式选择“智能分析”或“创建草稿”时调用。
   // 上下文由主进程从本地数据库构建，渲染进程无法传入文件路径或凭据。

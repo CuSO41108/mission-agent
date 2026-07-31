@@ -9,4 +9,5 @@ export {
   type WorkflowRuntime,
 } from "./WorkflowEngine";
 export { createWorkflowModelRuntime, type WorkflowModelRuntimeOptions } from "./modelNodeRuntime";
+export { findWorkflowModelProfileReferences } from "./modelProfileReferences";
 export { emitWorkflowEvent, type WorkflowEvent, type WorkflowTrace } from "./events";

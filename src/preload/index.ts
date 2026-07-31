@@ -65,6 +65,8 @@ const api = {
       | { ok: true; content: string; model: string }
       | { ok: false; error: string }
     >,
+  deleteModelProfile: (profileId: string) =>
+    ipcRenderer.invoke("model-profile:delete", profileId) as Promise<AppConfig>,
   analyzeCopilot: (prompt: string) => ipcRenderer.invoke("copilot:analyze", prompt) as Promise<
     | { ok: true; result: CopilotModelResult }
     | { ok: false; error: string }
