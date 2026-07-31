@@ -162,18 +162,25 @@ export default function Settings() {
 
   async function testModelProfile(profileId: string) {
     setProfileTest((current) => ({ ...current, [profileId]: { status: "testing", message: "" } }));
-    const saved = await saveModelProfiles();
-    if (!saved) {
-      setProfileTest((current) => ({ ...current, [profileId]: { status: "error", message: t("模型配置保存失败", "Could not save model profile") } }));
-      return;
+    try {
+      const saved = await saveModelProfiles();
+      if (!saved) {
+        setProfileTest((current) => ({ ...current, [profileId]: { status: "error", message: t("模型配置保存失败", "Could not save model profile") } }));
+        return;
+      }
+      const result = await window.missionConsole.testModelProfile(profileId);
+      setProfileTest((current) => ({
+        ...current,
+        [profileId]: result.ok
+          ? { status: "success", message: `${t("连接成功", "Connected")} · ${result.model}` }
+          : { status: "error", message: result.error },
+      }));
+    } catch (error) {
+      setProfileTest((current) => ({
+        ...current,
+        [profileId]: { status: "error", message: error instanceof Error ? error.message : String(error) },
+      }));
     }
-    const result = await window.missionConsole.testModelProfile(profileId);
-    setProfileTest((current) => ({
-      ...current,
-      [profileId]: result.ok
-        ? { status: "success", message: `${t("连接成功", "Connected")} · ${result.model}` }
-        : { status: "error", message: result.error },
-    }));
   }
 
   // 测试 OpenAI 兼容模型连接
@@ -403,11 +410,11 @@ export default function Settings() {
                   const id = `model-${Date.now().toString(36)}`;
                   setProfileDrafts((profiles) => [...profiles, {
                     id,
-                    name: "Qwen-VL 图片识别",
-                    provider: "dashscope",
+                    name: "多模态图片识别",
+                    provider: "openai_compatible",
                     apiKey: "",
-                    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    model: "qwen-vl-max",
+                    baseUrl: "",
+                    model: "",
                     capabilities: ["text", "image", "structured_output"],
                     apiKeyConfigured: false,
                   }]);
@@ -433,7 +440,7 @@ export default function Settings() {
                       </select>
                     </Field>
                     <Field label={t("模型", "Model")}>
-                      <input className="input" value={profile.model} onChange={(event) => patchProfile(profile.id, { model: event.target.value })} />
+                      <input className="input" value={profile.model} onChange={(event) => patchProfile(profile.id, { model: event.target.value })} placeholder="例如 gpt-4.1-mini / gemini-2.5-flash / qwen-vl-max" />
                     </Field>
                     <Field label="Base URL">
                       <input className="input" value={profile.baseUrl} onChange={(event) => patchProfile(profile.id, { baseUrl: event.target.value })} />
@@ -464,6 +471,7 @@ export default function Settings() {
                     </button>
                     {testing?.message && <span className={cn("text-[10px]", testing.status === "success" ? "text-jade" : "text-rose-300")}>{testing.message}</span>}
                   </div>
+                  <p className="text-[9px] text-ink-faint">连接测试最长等待 15 秒。识图节点可使用任意支持 OpenAI 兼容图片输入的模型，并勾选 image 能力。</p>
                 </div>
               );
             })}

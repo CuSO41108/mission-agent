@@ -2,7 +2,7 @@
 // 用 fetch 直调，不依赖 openai npm 包（减少打包体积）
 // 零 electron 依赖，未来 Web 版可复用
 
-import type { DeepSeekConfig } from "./defaultConfig";
+import type { DeepSeekConfig, ModelProfile } from "./defaultConfig";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -32,6 +32,7 @@ export interface ChatOptions {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+export const MODEL_PROFILE_TEST_TIMEOUT_MS = 15_000;
 
 /**
  * 测试 OpenAI 兼容模型 API 连接
@@ -47,6 +48,21 @@ export async function testDeepSeek(config: DeepSeekConfig): Promise<ChatResult> 
   return chat(config, [
     { role: "user", content: "ping" },
   ]);
+}
+
+/** 用一个小请求验证任意 OpenAI 兼容模型配置，连接测试使用更短的固定超时。 */
+export async function testModelProfileConnection(
+  profile: ModelProfile,
+  timeoutMs = MODEL_PROFILE_TEST_TIMEOUT_MS,
+): Promise<ChatResult> {
+  if (!profile.apiKey.trim()) throw new Error("API Key 为空，请先填写");
+  if (!profile.baseUrl.trim()) throw new Error("Base URL 为空，请先填写");
+  if (!profile.model.trim()) throw new Error("模型 ID 为空，请先填写");
+  return chat(profile, [{ role: "user", content: "ping" }], {
+    timeoutMs,
+    maxTokens: 8,
+    temperature: 0,
+  });
 }
 
 /**

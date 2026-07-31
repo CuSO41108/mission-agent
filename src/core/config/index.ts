@@ -24,6 +24,8 @@ export { loadConfig, saveConfig, initConfigFile } from "./configLoader";
 export {
   chat,
   testDeepSeek,
+  testModelProfileConnection,
+  MODEL_PROFILE_TEST_TIMEOUT_MS,
   type ChatMessage,
   type ChatContentPart,
   type ChatResult,

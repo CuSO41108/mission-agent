@@ -66,6 +66,7 @@ import {
   saveConfig,
   mergeConfig,
   testDeepSeek,
+  testModelProfileConnection,
   type AppConfig,
   type ModelProfile,
 } from "../core/config";
@@ -643,6 +644,16 @@ function registerIpc(): void {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       };
+    }
+  });
+  ipcMain.handle("model-profile:test", async (_e, profileId: string) => {
+    try {
+      const profile = getConfig().models.profiles.find((item) => item.id === profileId);
+      if (!profile) throw new Error("模型配置不存在或已被删除");
+      const result = await testModelProfileConnection(profile);
+      return { ok: true as const, content: result.content, model: result.model };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
