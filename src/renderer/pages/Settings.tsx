@@ -34,7 +34,7 @@ import {
   ORCAROUTER_BASE_URL,
   ORCAROUTER_DEFAULT_MODEL,
   ORCAROUTER_PROVIDER,
-} from "@core/config";
+} from "@core/config/providerPresets";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
 type UpdateStatus = "idle" | "checking" | "available" | "latest" | "error";
