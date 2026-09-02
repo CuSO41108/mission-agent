@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { testModelProfileConnection } from "../src/core/config/deepseekClient";
 import type { ModelProfile } from "../src/core/config/defaultConfig";
+import {
+  ORCAROUTER_API_KEY_ENV,
+  ORCAROUTER_BASE_URL,
+  ORCAROUTER_DEFAULT_MODEL,
+  ORCAROUTER_PROVIDER_CONFIG,
+} from "../src/core/config/providerPresets";
 import { findWorkflowModelProfileReferences } from "../src/core/workflow/modelProfileReferences";
 
 const profile: ModelProfile = {
@@ -29,6 +35,16 @@ test("模型配置连接测试会在指定时间内中止", async () => {
 test("模型配置连接测试在请求前校验通用配置", async () => {
   await assert.rejects(() => testModelProfileConnection({ ...profile, model: "" }), /模型 ID 为空/);
   await assert.rejects(() => testModelProfileConnection({ ...profile, baseUrl: "" }), /Base URL 为空/);
+});
+
+test("OrcaRouter Provider 暴露 OpenAI 兼容接入参数", () => {
+  assert.equal(ORCAROUTER_PROVIDER_CONFIG.provider, "orcarouter");
+  assert.equal(ORCAROUTER_PROVIDER_CONFIG.baseUrl, "https://api.orcarouter.ai/v1");
+  assert.equal(ORCAROUTER_PROVIDER_CONFIG.model, "orcarouter/auto");
+  assert.equal(ORCAROUTER_PROVIDER_CONFIG.apiKeyEnv, "ORCAROUTER_API_KEY");
+  assert.equal(ORCAROUTER_BASE_URL, ORCAROUTER_PROVIDER_CONFIG.baseUrl);
+  assert.equal(ORCAROUTER_DEFAULT_MODEL, ORCAROUTER_PROVIDER_CONFIG.model);
+  assert.equal(ORCAROUTER_API_KEY_ENV, ORCAROUTER_PROVIDER_CONFIG.apiKeyEnv);
 });
 
 test("删除模型前能同时发现旧动作和图节点中的工作流引用并去重", () => {

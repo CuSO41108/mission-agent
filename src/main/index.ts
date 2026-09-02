@@ -178,7 +178,7 @@ function hydrateModelProfiles(config: AppConfig): AppConfig {
     if (profile.id === "deepseek-default") {
       return {
         ...profile,
-        provider: "deepseek",
+        provider: config.deepseek.provider ?? "deepseek",
         apiKey: config.deepseek.apiKey,
         baseUrl: config.deepseek.baseUrl,
         model: config.deepseek.model,

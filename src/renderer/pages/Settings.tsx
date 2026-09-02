@@ -27,7 +27,13 @@ import { useMissionStore } from "@/store/useMissionStore";
 import type {
   AppConfig,
   ModelCapability,
+  ModelProvider,
   ModelProfile,
+} from "@core/config";
+import {
+  ORCAROUTER_BASE_URL,
+  ORCAROUTER_DEFAULT_MODEL,
+  ORCAROUTER_PROVIDER,
 } from "@core/config";
 
 type TestStatus = "idle" | "testing" | "success" | "error";
@@ -50,6 +56,7 @@ export default function Settings() {
   const [profileTest, setProfileTest] = useState<Record<string, { status: TestStatus; message: string }>>({});
   // 用于模型连接测试时拿当前表单里的临时值（用户可能还没保存）
   const [draftApiKey, setDraftApiKey] = useState("");
+  const [draftProvider, setDraftProvider] = useState<ModelProvider>("deepseek");
   const [draftModel, setDraftModel] = useState("deepseek-chat");
   const [draftHeartbeatInterval, setDraftHeartbeatInterval] = useState(60);
   const [draftMaxConcurrentRuns, setDraftMaxConcurrentRuns] = useState(2);
@@ -64,6 +71,7 @@ export default function Settings() {
     void window.missionConsole.getConfig().then((cfg) => {
       setConfigState(cfg);
       setDraftApiKey("");
+      setDraftProvider(cfg.deepseek.provider ?? "deepseek");
       setDraftModel(cfg.deepseek.model);
       setProfileDrafts(cfg.models.profiles.filter((profile) => profile.id !== "deepseek-default"));
       setDraftHeartbeatInterval(cfg.agent.heartbeatIntervalMin);
@@ -140,6 +148,12 @@ export default function Settings() {
     setProfileDrafts((profiles) => profiles.map((profile) => profile.id === profileId ? { ...profile, ...patch } : profile));
   }
 
+  function selectProfileProvider(profileId: string, provider: ModelProvider) {
+    patchProfile(profileId, provider === ORCAROUTER_PROVIDER
+      ? { provider, baseUrl: ORCAROUTER_BASE_URL, model: ORCAROUTER_DEFAULT_MODEL }
+      : { provider });
+  }
+
   function toggleCapability(profile: ModelProfile, capability: ModelCapability) {
     const capabilities = profile.capabilities.includes(capability)
       ? profile.capabilities.filter((item) => item !== capability)
@@ -208,12 +222,29 @@ export default function Settings() {
   }
 
   // 测试 OpenAI 兼容模型连接
+  function selectPrimaryProvider(provider: ModelProvider) {
+    setDraftProvider(provider);
+    if (provider === ORCAROUTER_PROVIDER) {
+      setDraftModel(ORCAROUTER_DEFAULT_MODEL);
+      void savePartial({
+        deepseek: {
+          ...config!.deepseek,
+          provider,
+          baseUrl: ORCAROUTER_BASE_URL,
+          model: ORCAROUTER_DEFAULT_MODEL,
+        },
+      });
+      return;
+    }
+    void savePartial({ deepseek: { ...config!.deepseek, provider } });
+  }
+
   async function testConnection() {
     setTestStatus("testing");
     setTestMessage("");
     // 先保存当前 draft，再触发测试（测试用的是落盘后的 config）
     const saved = await savePartial({
-      deepseek: { ...config!.deepseek, apiKey: draftApiKey, model: draftModel },
+      deepseek: { ...config!.deepseek, provider: draftProvider, apiKey: draftApiKey, model: draftModel },
     });
     if (!saved) {
       setTestStatus("error");
@@ -347,6 +378,18 @@ export default function Settings() {
             </div>
           </Field>
 
+          <Field label={t("服务商", "Provider")}>
+            <select
+              className="input"
+              value={draftProvider}
+              onChange={(event) => selectPrimaryProvider(event.target.value as ModelProvider)}
+            >
+              <option value="deepseek">DeepSeek</option>
+              <option value="orcarouter">OrcaRouter</option>
+              <option value="openai_compatible">OpenAI Compatible</option>
+            </select>
+          </Field>
+
           <Field label={t("模型", "Model")}>
             <input
               type="text"
@@ -385,6 +428,7 @@ export default function Settings() {
                 savePartial({
                   deepseek: {
                     ...config!.deepseek,
+                    provider: draftProvider,
                     apiKey: draftApiKey,
                     model: draftModel,
                   },
@@ -457,9 +501,10 @@ export default function Settings() {
                       <input className="input" value={profile.name} onChange={(event) => patchProfile(profile.id, { name: event.target.value })} />
                     </Field>
                     <Field label={t("服务商", "Provider")}>
-                      <select className="input" value={profile.provider} onChange={(event) => patchProfile(profile.id, { provider: event.target.value as ModelProfile["provider"] })}>
+                      <select className="input" value={profile.provider} onChange={(event) => selectProfileProvider(profile.id, event.target.value as ModelProvider)}>
                         <option value="dashscope">通义千问 / DashScope</option>
                         <option value="deepseek">DeepSeek</option>
+                        <option value="orcarouter">OrcaRouter</option>
                         <option value="openai_compatible">OpenAI Compatible</option>
                       </select>
                     </Field>

@@ -111,6 +111,17 @@ mission-console
 
 模型 API Key 会从旧版 YAML 自动迁移至 Electron `safeStorage` 加密文件，渲染进程只能看到“已配置”状态，无法读取完整 Key。设置页留空表示保留现有 Key，只有输入新值才会覆盖。点击“测试连接”会产生一次真实 API 请求；运行 Agent 时，启用“读取”权限的任务舱上下文及任务需要的本地文本材料会发送到所配置的模型服务，请根据数据敏感度决定是否启用。
 
+### OrcaRouter
+
+Mission Console 支持通过 OrcaRouter 的 OpenAI 兼容接口访问其模型目录和自动路由：
+
+- **Provider**：`OrcaRouter`
+- **Base URL**：`https://api.orcarouter.ai/v1`
+- **Model**：`orcarouter/auto`（也可填写具体模型 ID）
+- **API Key**：从 OrcaRouter 控制台获取的 `sk-orca-*` 密钥；对应环境变量名为 `ORCAROUTER_API_KEY`
+
+在“设置 → 模型配置”中选择 OrcaRouter，填写 API Key 后点击“测试连接”。工作流中的命名模型配置也可以选择 OrcaRouter；密钥只会由 Electron `safeStorage` 加密保存，不会写入仓库或发送到渲染进程。
+
 ## Architecture
 
 ```mermaid
