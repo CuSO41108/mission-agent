@@ -20,13 +20,6 @@ export {
   type SystemConfig,
   type StorageConfig,
 } from "./defaultConfig";
-export {
-  ORCAROUTER_PROVIDER,
-  ORCAROUTER_BASE_URL,
-  ORCAROUTER_DEFAULT_MODEL,
-  ORCAROUTER_API_KEY_ENV,
-  ORCAROUTER_PROVIDER_CONFIG,
-} from "./providerPresets";
 export { loadConfig, saveConfig, initConfigFile } from "./configLoader";
 export {
   chat,

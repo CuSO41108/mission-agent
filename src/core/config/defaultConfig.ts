@@ -7,8 +7,6 @@
  * OpenAI 兼容协议，通过 openai npm 包或直接 fetch 调用
  */
 export interface DeepSeekConfig {
-  /** 当前默认模型所使用的 Provider；字段可选以兼容旧版 config.yaml。 */
-  provider?: ModelProvider;
   /** API key，形如 sk-xxx */
   apiKey: string;
   /** API base URL，默认官方地址 */
@@ -19,7 +17,7 @@ export interface DeepSeekConfig {
   apiKeyConfigured?: boolean;
 }
 
-export type ModelProvider = "openai_compatible" | "deepseek" | "dashscope" | "orcarouter";
+export type ModelProvider = "openai_compatible" | "deepseek" | "dashscope";
 export type ModelCapability = "text" | "image" | "structured_output" | "reasoning";
 
 /** 可被工作流节点复用的命名模型配置。密钥只在主进程内存中存在。 */
@@ -112,7 +110,6 @@ export function normalizeMaxConcurrentAgentRuns(value: number): number {
  */
 export const DEFAULT_CONFIG: AppConfig = {
   deepseek: {
-    provider: "deepseek",
     apiKey: "",
     baseUrl: "https://api.deepseek.com",
     model: "deepseek-chat",
